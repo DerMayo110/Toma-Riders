@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Toma Riders</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" width="1280" height="720"></canvas>
+
+  <!-- Touch-Steuerung (erscheint automatisch auf Touch-Geräten) -->
+  <div id="touch" class="hidden">
+    <div class="tgroup left">
+      <button id="tLeft" class="tbtn" aria-label="Links">&#9664;</button>
+      <button id="tRight" class="tbtn" aria-label="Rechts">&#9654;</button>
+    </div>
+    <div class="tgroup right">
+      <button id="tBrake" class="tbtn small" aria-label="Bremsen">&#9632;</button>
+      <button id="tDrift" class="tbtn small drift">DRIFT</button>
+      <button id="tBoost" class="tbtn boost">BOOST</button>
+    </div>
+  </div>
+
+  <!-- Hauptmenü -->
+  <div id="menu" class="overlay">
+    <div class="brand">
+      <canvas id="portrait" width="360" height="360"></canvas>
+      <div class="logo">
+        <div class="logo-top">TOMA</div>
+        <div class="logo-bottom"><span>RIDERS</span></div>
+        <div class="logo-tag">Agon der Fäden</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="row">
+        <button id="storyBtn" class="big">Story starten</button>
+        <button id="freeBtn" class="big alt">Freies Rennen</button>
+      </div>
+      <div id="storyLine" class="best"></div>
+      <div class="row">
+        <span class="label">Schwierigkeit</span>
+        <button class="chip" data-diff="0">Locker</button>
+        <button class="chip active" data-diff="1">Normal</button>
+        <button class="chip" data-diff="2">Profi</button>
+        <button id="storyResetBtn" class="link hidden">Story neu beginnen</button>
+      </div>
+      <div class="row">
+        <button id="boardBtn" class="chip">Brett</button>
+      </div>
+      <div class="keys">
+        <div><kbd>&larr;</kbd><kbd>&rarr;</kbd> Lenken</div>
+        <div><kbd>&uarr;</kbd> Gas &nbsp; <kbd>&darr;</kbd> Bremse</div>
+        <div><kbd>Leertaste</kbd> Boost</div>
+        <div><kbd>X</kbd> / <kbd>Shift</kbd> halten + lenken: Driften</div>
+        <div>In der Luft: <kbd>&larr;</kbd><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&rarr;</kbd> Tricks</div>
+        <div><kbd>P</kbd> Pause &nbsp; <kbd>M</kbd> Ton &nbsp; <kbd>R</kbd> Neustart</div>
+        <div>WASD geht auch</div>
+        <div>Drift loslassen = Turbo</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Streckenwahl -->
+  <div id="tracks" class="overlay hidden">
+    <div class="panel wide3">
+      <div class="title small">Strecke wählen</div>
+      <div id="trackGrid" class="tgrid"></div>
+      <div class="row">
+        <button id="tracksBoard" class="ghost">Brett</button>
+        <button id="tracksBack" class="ghost">Zurück</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Brettwahl -->
+  <div id="boards" class="overlay hidden">
+    <div class="panel wide3">
+      <div class="title small">Brett wählen</div>
+      <div id="boardGrid" class="bgrid"></div>
+      <button id="boardsBack" class="ghost">Zurück</button>
+    </div>
+  </div>
+
+  <!-- Zwischensequenzen (Visual Novel) -->
+  <div id="vn" class="overlay vn hidden">
+    <canvas id="vnStage" width="1280" height="720"></canvas>
+    <div class="vn-top">
+      <button id="vnAuto" class="ghost skip">Auto</button>
+      <button id="vnSkip" class="ghost skip">Überspringen &#9654;&#9654;</button>
+    </div>
+    <div class="vn-title">
+      <div id="vnBig" class="vn-big"></div>
+      <div id="vnBigSub" class="vn-bigsub"></div>
+    </div>
+    <div class="vn-box">
+      <div id="vnName" class="vn-name"></div>
+      <div id="vnLine" class="vn-line"></div>
+      <div class="vn-next">&#9660;</div>
+      <div class="vn-hint">Klick / Enter / Leertaste</div>
+    </div>
+  </div>
+
+  <!-- Kapitelkarte -->
+  <div id="card" class="overlay hidden">
+    <div class="panel center wide">
+      <div id="cardKicker" class="kicker"></div>
+      <div id="cardTitle" class="title"></div>
+      <div id="cardTrack" class="sub"></div>
+      <div id="cardGoal" class="goal"></div>
+      <div id="cardStake" class="tip"></div>
+      <div class="row">
+        <button id="cardGo" class="big">An den Start</button>
+        <button id="cardBoard" class="ghost">Brett</button>
+        <button id="cardMenu" class="ghost">Zum Menü</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause" class="overlay hidden">
+    <div class="panel center">
+      <div class="title">PAUSE</div>
+      <button id="resumeBtn" class="big">Weiter</button>
+      <button id="quitBtn" class="ghost">Zum Menü</button>
+    </div>
+  </div>
+
+  <!-- Ergebnis -->
+  <div id="results" class="overlay hidden">
+    <div class="panel center wide">
+      <div id="resTitle" class="title">ZIEL!</div>
+      <div id="resSub" class="sub"></div>
+      <div id="resTable" class="table"></div>
+      <div class="row">
+        <button id="againBtn" class="big">Nochmal</button>
+        <button id="menuBtn" class="ghost">Zum Menü</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Story: gescheitert -->
+  <div id="death" class="overlay hidden">
+    <div class="panel center wide">
+      <div class="title red">SCHNIPP.</div>
+      <div id="deathSub" class="sub"></div>
+      <div id="deathQuote" class="quote"></div>
+      <div id="deathCount" class="tip"></div>
+      <div class="row">
+        <button id="deathRetry" class="big">Sanduhr umdrehen</button>
+        <button id="deathMenu" class="ghost">Zum Menü</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Story: Ende -->
+  <div id="ending" class="overlay hidden">
+    <div class="panel center wide">
+      <div class="title">ENDE?</div>
+      <div class="sub">Toma Lioumba hat den Agon der Fäden beendet – und die Zeit selbst überholt.</div>
+      <div id="endStats" class="tip"></div>
+      <button id="endMenu" class="big">Zum Menü</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/art.js"></script>
+<script src="js/art-worlds.js"></script>
+<script src="js/track.js"></script>
+<script src="js/story.js"></script>
+<script src="js/cutscene.js"></script>
+<script src="js/ring.js"></script>
+<script src="js/boss.js"></script>
+<script src="js/boards.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

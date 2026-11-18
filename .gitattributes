@@ -1,0 +1,2 @@
+# Textdateien einheitlich mit LF-Zeilenenden speichern (auch unter Windows)
+* text=auto eol=lf

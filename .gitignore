@@ -1,0 +1,16 @@
+# Betriebssystem und Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Node (falls später Abhängigkeiten dazukommen)
+node_modules/
+npm-debug.log*
+
+# lokale Claude-Einstellungen
+.claude/settings.local.json
+
+# temporäre Testdateien
+_bot.js
