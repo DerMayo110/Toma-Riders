@@ -29,6 +29,7 @@ const ROLL_MAX = 0.075;        // stärkste Schräglage der Kamera (Bogenmaß)
 
 /* ================= Zustand ================= */
 let renderScale = 1;
+let gfx3d = false;             // echte 3D-Darstellung (WebGL) statt der klassischen 2D-Zeichnung
 let focal = BASE_FOCAL;
 let state = 'menu';            // menu (Demo im Hintergrund) | countdown | race | finished
 let mode = 'free';             // free | story
@@ -120,6 +121,7 @@ function setupRace(cfg) {
     theme = getTheme(track.theme);
     FOG = theme.fog;
     hazeGrad = null;
+    W3.build();
   }
   bossOn = !!cfg.boss;
   LAPS = bossOn ? 999 : cfg.laps || 3;       // der Bosskampf kennt keine Runden
@@ -1026,6 +1028,7 @@ function update(dt) {
   }
 
   updateCamera(dt);
+  if (gfx3d) W3.tick(dt);
   updateFx(dt);
 }
 
@@ -1395,22 +1398,34 @@ function drawRacer(r, s) {
 
   if (r.big) drawBossMark(sx, fy, k);
 
-  if (!r.isPlayer && !r.shot && !r.big && state !== 'menu' && k > 0.42 && k < 2.9) {
-    const size = clamp(11 * k + 6, 11, 22);
-    ctx.font = '800 ' + size + 'px "Segoe UI", Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = 'rgba(8,20,60,.85)';
-    const label = r.ally ? '★ ' + r.name : r.pos + '. ' + r.name;
-    ctx.strokeText(label, sx, fy - 110 * k);
-    ctx.fillStyle = r.ally ? '#7dffd8' : r.god || r.rival ? '#ffd34d' : '#ffffff';
-    ctx.fillText(label, sx, fy - 110 * k);
-  }
+  riderLabel(r, sx, fy, k);
 
   ctx.globalAlpha = 1;
   if (needClip) ctx.restore();
+}
+
+function riderLabel(r, sx, fy, k) {
+  if (r.isPlayer || r.shot || r.big || state === 'menu' || k <= 0.42 || k >= 2.9) return;
+  const size = clamp(11 * k + 6, 11, 22);
+  ctx.font = '800 ' + size + 'px "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = 'rgba(8,20,60,.85)';
+  const label = r.ally ? '★ ' + r.name : r.pos + '. ' + r.name;
+  ctx.strokeText(label, sx, fy - 110 * k);
+  ctx.fillStyle = r.ally ? '#7dffd8' : r.god || r.rival ? '#ffd34d' : '#ffffff';
+  ctx.fillText(label, sx, fy - 110 * k);
+}
+
+/* 3D-Modus: Namensschilder und Boss-Markierung liegen als 2D-Bild über der 3D-Welt */
+function drawOverlay3d() {
+  for (const r of racers) {
+    if (!r.sv) continue;
+    if (r.big) drawBossMark(r.sx, r.sy, r.sk);
+    riderLabel(r, r.sx, r.sy, r.sk);
+  }
 }
 
 const ringsAhead = [], touchedSegs = [];
@@ -1725,15 +1740,21 @@ function drawHUD() {
 
 function render() {
   ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+  const in3d = gfx3d && W3.draw();                  // 3D-Welt auf der eigenen Leinwand darunter
   ctx.save();
-  if (shake > 0.3) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
-  if (Math.abs(view.roll) > 0.0015) {
-    ctx.translate(CX, H * 0.62);
-    ctx.rotate(view.roll);
-    ctx.translate(-CX, -H * 0.62);
+  if (in3d) {
+    ctx.clearRect(-2, -2, W + 4, H + 4);
+    drawOverlay3d();
+  } else {
+    if (shake > 0.3) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+    if (Math.abs(view.roll) > 0.0015) {
+      ctx.translate(CX, H * 0.62);
+      ctx.rotate(view.roll);
+      ctx.translate(-CX, -H * 0.62);
+    }
+    drawBackground();
+    drawWorld();
   }
-  drawBackground();
-  drawWorld();
   drawParticles();
   drawSpeedFx();
   ctx.restore();
@@ -1783,6 +1804,20 @@ $('freeBtn').addEventListener('click', () => { buildTrackGrid(); showUI('tracks'
 $('tracksBack').addEventListener('click', () => { showUI('menu'); refreshMenu(); });
 for (const id of ['boardBtn', 'tracksBoard', 'cardBoard']) $(id).addEventListener('click', e => { e.currentTarget.blur(); openBoards(); });
 $('boardsBack').addEventListener('click', closeBoards);
+
+/* Grafik: 3D oder klassisch (wird gespeichert; ohne WebGL2 bleibt es klassisch) */
+const GFX_KEY = 'toma-riders-gfx';
+function setGfx(on) {
+  gfx3d = on && W3.available;
+  $('gl').classList.toggle('hidden', !gfx3d);
+  $('gfxBtn').textContent = 'Grafik: ' + (gfx3d ? '3D' : 'Klassisch') + (W3.available ? '  ▸' : '');
+}
+$('gfxBtn').addEventListener('click', e => {
+  e.currentTarget.blur();
+  if (!W3.available) return;
+  setGfx(!gfx3d);
+  try { localStorage.setItem(GFX_KEY, gfx3d ? '3d' : 'classic'); } catch (err) { /* gilt dann nur bis zum Neuladen */ }
+});
 $('againBtn').addEventListener('click', () => { if (mode === 'story') Story.next(); else restartRace(); });
 $('menuBtn').addEventListener('click', toMenu);
 $('quitBtn').addEventListener('click', toMenu);
@@ -1881,5 +1916,11 @@ drawHeroPortrait($('portrait').getContext('2d'), 180, 180, 3.55);
 resize();
 window.addEventListener('resize', resize);
 refreshBoardLabels();
+W3.init($('gl'), canvas);
+{
+  let pref = null;
+  try { pref = localStorage.getItem(GFX_KEY); } catch (err) { /* kein Speicher: Standard */ }
+  setGfx(pref !== 'classic');
+}
 toMenu();
 requestAnimationFrame(frame);

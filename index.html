@@ -8,6 +8,7 @@
 </head>
 <body>
 <div id="stage">
+  <canvas id="gl" width="1280" height="720"></canvas>
   <canvas id="game" width="1280" height="720"></canvas>
 
   <!-- Touch-Steuerung (erscheint automatisch auf Touch-Geräten) -->
@@ -48,6 +49,7 @@
       </div>
       <div class="row">
         <button id="boardBtn" class="chip">Brett</button>
+        <button id="gfxBtn" class="chip">Grafik</button>
       </div>
       <div class="keys">
         <div><kbd>&larr;</kbd><kbd>&rarr;</kbd> Lenken</div>
@@ -175,6 +177,7 @@
 <script src="js/ring.js"></script>
 <script src="js/boss.js"></script>
 <script src="js/boards.js"></script>
+<script src="js/world3d.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>
