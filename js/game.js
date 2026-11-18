@@ -1831,10 +1831,12 @@ $('deathRetry').addEventListener('click', () => Story.retry());
 $('deathMenu').addEventListener('click', toMenu);
 $('endMenu').addEventListener('click', toMenu);
 
-document.querySelectorAll('.chip').forEach(b => {
+// nur die Schwierigkeits-Knöpfe – „Brett“ und „Grafik“ sehen gleich aus, stellen aber nichts an der Schwierigkeit um
+const DIFF_CHIPS = document.querySelectorAll('.chip[data-diff]');
+DIFF_CHIPS.forEach(b => {
   b.addEventListener('click', () => {
     difficulty = +b.dataset.diff;
-    document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === b));
+    DIFF_CHIPS.forEach(c => c.classList.toggle('active', c === b));
     b.blur();
   });
 });
