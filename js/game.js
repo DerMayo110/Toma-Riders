@@ -78,8 +78,9 @@ function makeRacer(def, x, dist, isPlayer) {
     ally: def.ally || 0, lane: def.lane || 0, gapNow: 0, big: 0, shot: false, fade: 1, rival: !!def.rival,
     cr: 0.3, sq: 0, sqV: 0, armUp: 0, bo: 0,          // Haltung fürs Zeichnen: Hocke, Federung, Arme hoch, Boost-Haltung
     x, dist, z: mod(dist, TRACK_LEN), rel: 0,
+    pDist: dist, pX: x, pH: 0, pY: 0,                 // Stand einen Schritt zuvor (für Zwischenbilder)
     speed: 0, steerV: 0, lean: 0, targetX: x, laneT: 1 + Math.random() * 3,
-    air: false, airT: 0, airEta: 0, yAbs: 0, vy: 0, h: 0, trick: null, tricks: 0,
+    air: false, airT: 0, airEta: 0, yAbs: 0, vy: 0, h: 0, trick: null, tricks: 0, trickQ: null, trickQT: 0,
     drift: 0, driftT: 0, driftLvl: 0, driftVis: 0, curveT: 0, loopIn: null,
     boostT: 0, stumbleT: 0, hitT: 0, bumpT: 0, hzT: 0, slip: 0, scrape: false, scrapeSide: 0,
     godT: 5 + Math.random() * 2, behindT: 0, rewinds: 0,
@@ -111,6 +112,7 @@ function resetRace() {
   airPitch = 0; loopVis = 0; view.roll = 0;
   bossReset();
   updateCamera(0);
+  keepPrev();
   rank();
 }
 
@@ -244,7 +246,10 @@ function checkLaunch(r, dt) {
   r.airEta = eta;
   r.sqV = 2.4;                                   // streckt sich beim Absprung
   if (r.isPlayer && !r.auto && eta > 0.35) burst(pScr.x, pScr.y, 8, '#ffffff');
-  if (r.isPlayer && !r.auto) { if (eta > 0.35) Sfx.jump(); }
+  if (r.isPlayer && !r.auto) {
+    if (eta > 0.35) Sfx.jump();
+    queuedTrick(r, 0.14);
+  }
   else if (eta > 0.6) {                            // KI zeigt einen Trick
     const ty = ['left', 'right', 'up', 'down'][(Math.random() * 4) | 0], set = TRICK_SETS[ty];
     r.trick = { type: ty, kind: set[(Math.random() * set.length) | 0], t: -0.5 };
@@ -256,6 +261,7 @@ function grounded(r) {
   r.vy = 0;
   r.h = 0;
   r.trick = null;
+  r.trickQ = null;
   r.tricks = 0;
 }
 
@@ -314,6 +320,7 @@ function landed(r) {
     }
   }
   r.trick = null;
+  r.trickQ = null;
   r.tricks = 0;
 }
 
@@ -334,6 +341,7 @@ function airUpdate(r, dt) {
         popup(TRICK_LABEL[kind] + (r.tricks > 1 ? '  ×' + r.tricks : '!'), '#ffd34d', 0.9);
         Sfx.trickDone(r.tricks);
         burst(pScr.x, pScr.y - 50 * pScr.k, 8 + r.tricks * 3, '#ffe9a0');
+        queuedTrick(r, 0.4);
       }
     }
   }
@@ -343,11 +351,30 @@ function airUpdate(r, dt) {
 
 function tryTrick(dir) {
   const p = player;
-  if (state !== 'race' || p.auto || !p.air || p.trick) return;
-  if (p.airEta - p.airT < TRICK_DUR * BD.trick * 0.6) return;       // kurzer Hüpfer oder schon kurz vor dem Boden: nur lenken
+  if (state !== 'race' || p.auto) return;
+  if (!p.air || p.trick) {
+    // Einen Tick zu früh gedrückt (kurz vor dem Absprung oder gegen Ende des laufenden Tricks): vormerken,
+    // der Trick schließt dann nahtlos an.
+    if (!p.air || p.trick.t > 0.3) { p.trickQ = dir; p.trickQT = gameT; }
+    return;
+  }
+  startTrick(p, dir, 0.6);
+}
+
+/* need = Anteil der Trickdauer, der mindestens noch an Flugzeit übrig sein muss */
+function startTrick(p, dir, need) {
+  p.trickQ = null;
+  if (p.airEta - p.airT < TRICK_DUR * BD.trick * need) return;      // kurzer Hüpfer oder schon kurz vor dem Boden: nur lenken
   const set = TRICK_SETS[dir];
   p.trick = { type: dir, kind: set[p.tricks % set.length], t: 0 };
   Sfx.trick();
+}
+
+/* Vorgemerkte Eingabe einlösen – nur, wenn sie frisch ist und der Trick sicher noch fertig wird */
+function queuedTrick(p, maxAge) {
+  const dir = p.trickQ;
+  p.trickQ = null;
+  if (dir && gameT - p.trickQT <= maxAge && state === 'race' && !p.auto) startTrick(p, dir, 1.05);
 }
 
 /* ================= Driften ================= */
@@ -986,6 +1013,7 @@ function buildTrackGrid() {
 /* ================= Simulation ================= */
 function update(dt) {
   gameT += dt;
+  keepPrev();
 
   if (state === 'countdown') {
     const prev = countdownT;
@@ -1038,7 +1066,33 @@ function updateCamera(dt) {
   cam.x = damp(cam.x, p.x * ROAD_W * 0.72, 9, dt);
   const seg = findSegment(p.z), sp = p.speed / MAX_SPEED;
   const L = findSegment(cam.z).loop;
+  if (L) airPitch = 0;                              // im Ring ergeben sich Höhe und Neigung aus der Bahn (placeView)
+  else {
+    // Höhe: folgt dem Fahrer, im Sprung und auf Schanzen aber nur zu gut drei Vierteln (gemessen an der Bezugshöhe,
+    // damit die Kamera an Schanzen- und Abbruchkanten nicht absackt)
+    const target = Math.max(p.yAbs + CAM_H - 0.22 * Math.max(0, p.yAbs - refYAt(p.z)), roadYAt(cam.z) + 420);
+    cam.y = damp(cam.y, target, 14, dt);
+    // Der Blick folgt Gefälle und Steigung; hoch in der Luft kippt die Kamera Richtung Landezone
+    const slope = (roadYAt(p.z + 700) - roadYAt(cam.z)) / (CAM_D + 700);
+    const want = (seg.loop || seg.gap ? 0 : clamp(slope * 0.5, -0.22, 0.2)) - (p.air ? clamp((p.h - 250) / 6500, 0, 0.3) : 0);
+    airPitch = damp(airPitch, want, 3.5, dt);
+  }
+  placeView();
 
+  boostVis = damp(boostVis, p.boostT > 0 ? 1 : 0, 5, dt);
+  loopVis = damp(loopVis, L ? 1 : 0, 4, dt);
+  trickVis = damp(trickVis, p.air && p.trick && p.trick.t > 0 && !p.auto ? 1 : 0, 7, dt);
+  focal = BASE_FOCAL * (1 - 0.13 * boostVis - 0.06 * loopVis + 0.09 * trickVis);
+  // Die Kamera legt sich in Kurven und beim Driften mit in die Schräglage
+  const roll = L ? 0 : -clamp(seg.curve * sp * sp * 0.0075 + p.steerV / STEER * 0.022 + p.driftVis * 0.03, -ROLL_MAX, ROLL_MAX);
+  V.roll = damp(V.roll, roll, 4, dt);
+  bgOff.far += seg.curve * sp * dt * 0.012;
+  bgOff.clouds += seg.curve * sp * dt * 0.006 + dt * 0.0015;
+}
+
+/* Blick fürs Zeichnen aus dem Kamerastand ableiten (cam.x / cam.y / cam.z, airPitch) – auch für Zwischenbilder */
+function placeView() {
+  const V = view, L = findSegment(cam.z).loop;
   V.loop = L; V.ghost = false; V.x0 = 0; V.n0 = 0; V.flat = true; V.fade = 0; V.x = cam.x;
   if (L) {
     // Die Kamera fährt mit durch den Ring: Lage und Blickrichtung folgen der Bahn.
@@ -1058,19 +1112,12 @@ function updateCamera(dt) {
       V.flat = th > 4.75;
       V.fade = clamp(1 - (th - 4.75) / 0.3, 0, 1);
     }
-    airPitch = 0;
     const c = L.cam;
     c.x = L.S * s / L.len + cam.x;
     c.y = V.y - L.y0;
     c.z = k;
     c.pitch = th;
   } else {
-    const target = Math.max(roadYAt(p.z) + CAM_H + p.h * 0.78, roadYAt(cam.z) + 420);
-    cam.y = damp(cam.y, target, 14, dt);
-    // Der Blick folgt Gefälle und Steigung; hoch in der Luft kippt die Kamera Richtung Landezone
-    const slope = (roadYAt(p.z + 700) - roadYAt(cam.z)) / (CAM_D + 700);
-    const want = (seg.loop || seg.gap ? 0 : clamp(slope * 0.5, -0.22, 0.2)) - (p.air ? clamp((p.h - 250) / 6500, 0, 0.3) : 0);
-    airPitch = damp(airPitch, want, 3.5, dt);
     V.z = cam.z;
     V.y = cam.y;
     V.pitch = airPitch;
@@ -1079,16 +1126,59 @@ function updateCamera(dt) {
   V.cos = Math.cos(V.pitch);
   V.sin = Math.sin(V.pitch);
   if (L) { L.cam.cos = V.cos; L.cam.sin = V.sin; }
+}
 
-  boostVis = damp(boostVis, p.boostT > 0 ? 1 : 0, 5, dt);
-  loopVis = damp(loopVis, L ? 1 : 0, 4, dt);
-  trickVis = damp(trickVis, p.air && p.trick && p.trick.t > 0 && !p.auto ? 1 : 0, 7, dt);
-  focal = BASE_FOCAL * (1 - 0.13 * boostVis - 0.06 * loopVis + 0.09 * trickVis);
-  // Die Kamera legt sich in Kurven und beim Driften mit in die Schräglage
-  const roll = L ? 0 : -clamp(seg.curve * sp * sp * 0.0075 + p.steerV / STEER * 0.022 + p.driftVis * 0.03, -ROLL_MAX, ROLL_MAX);
-  V.roll = damp(V.roll, roll, 4, dt);
-  bgOff.far += seg.curve * sp * dt * 0.012;
-  bgOff.clouds += seg.curve * sp * dt * 0.006 + dt * 0.0015;
+/* ================= Zwischenbilder ================= */
+/* Gerechnet wird in festen Schritten (60 pro Sekunde), gezeichnet so oft, wie der Bildschirm es anbietet. Damit die
+   Bewegung dabei gleichmäßig bleibt, zeigt jedes Bild einen Stand zwischen dem vorigen und dem aktuellen Schritt
+   (a = Anteil des aktuellen). Fahrer und Kamera werden dafür kurz auf diesen Zwischenstand gesetzt und nach dem
+   Zeichnen wieder zurück – die Simulation selbst merkt davon nichts. */
+const prevCam = { x: 0, y: CAM_H, roll: 0, pitch: 0, focal: BASE_FOCAL, far: 0, clouds: 0 };
+const trueCam = { x: 0, y: 0, z: 0, roll: 0, pitch: 0, focal: 0, far: 0, clouds: 0 };
+let blended = [];
+
+function movers() { return boss && boss.shots.length ? racers.concat(boss.shots) : racers; }
+
+/* Stand vor dem nächsten Schritt merken */
+function keepPrev() {
+  for (const r of movers()) { r.pDist = r.dist; r.pX = r.x; r.pH = r.h; r.pY = r.yAbs; }
+  prevCam.x = cam.x; prevCam.y = cam.y; prevCam.roll = view.roll; prevCam.pitch = airPitch; prevCam.focal = focal;
+  prevCam.far = bgOff.far; prevCam.clouds = bgOff.clouds;
+}
+
+function blendIn(a) {
+  blended = movers();
+  for (const r of blended) {
+    r.tDist = r.dist; r.tZ = r.z; r.tX = r.x; r.tH = r.h;
+    const dd = r.dist - r.pDist;
+    if (dd > -400 && dd < 1200) {                    // sonst wurde der Fahrer versetzt (Sturz in die Schlucht, Neustart)
+      r.dist = r.pDist + dd * a;
+      r.z = mod(r.dist, TRACK_LEN);
+      r.x = lerp(r.pX, r.x, a);
+      // Flughöhe aus der absoluten Höhe: an Schanzenkanten springt die Höhe über der Bahn, die Flugbahn selbst nicht
+      r.h = r.air || r.pH > 0 ? Math.max(0, lerp(r.pY, r.yAbs, a) - roadYAt(r.z)) : 0;
+    }
+  }
+  const t = trueCam, q = prevCam;
+  t.x = cam.x; t.y = cam.y; t.z = cam.z; t.roll = view.roll; t.pitch = airPitch; t.focal = focal;
+  t.far = bgOff.far; t.clouds = bgOff.clouds;
+  cam.z = mod(player.dist - CAM_D, TRACK_LEN);
+  cam.x = lerp(q.x, cam.x, a);
+  cam.y = lerp(q.y, cam.y, a);
+  view.roll = lerp(q.roll, view.roll, a);
+  airPitch = lerp(q.pitch, airPitch, a);
+  focal = lerp(q.focal, focal, a);
+  bgOff.far = lerp(q.far, bgOff.far, a);
+  bgOff.clouds = lerp(q.clouds, bgOff.clouds, a);
+  placeView();
+}
+
+function blendOut() {
+  for (const r of blended) { r.dist = r.tDist; r.z = r.tZ; r.x = r.tX; r.h = r.tH; }
+  const t = trueCam;
+  cam.x = t.x; cam.y = t.y; cam.z = t.z; view.roll = t.roll; airPitch = t.pitch; focal = t.focal;
+  bgOff.far = t.far; bgOff.clouds = t.clouds;
+  placeView();
 }
 
 function updateFx(dt) {
@@ -1738,9 +1828,10 @@ function drawHUD() {
   if (Sfx.muted) txt('TON AUS (M)', CX, 66, 14, '#ffffff', 'center', '#0b1b4d', 3.5);
 }
 
-function render() {
+/* a = Anteil des laufenden Schritts (siehe Zwischenbilder); ohne Angabe wird der aktuelle Stand gezeichnet */
+function render(a) {
   ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
-  const in3d = gfx3d && W3.draw();                  // 3D-Welt auf der eigenen Leinwand darunter
+  const in3d = gfx3d && W3.draw(a);                  // 3D-Welt auf der eigenen Leinwand darunter
   ctx.save();
   if (in3d) {
     ctx.clearRect(-2, -2, W + 4, H + 4);
@@ -1908,7 +1999,12 @@ function frame(now) {
   if (cut) {
     Cut.tick(dt);
     Cut.render();
-  } else render();
+  } else {
+    const a = clamp(accT / STEP, 0, 1);
+    blendIn(a);
+    render(a);
+    blendOut();
+  }
 }
 
 buildArt();

@@ -29,7 +29,8 @@ const W3 = (() => {
   let tex = {};
   let T = null;                  // Daten der geladenen Strecke
   let atlasCv = null, atlasCtx = null, atlasTex = null;
-  const camS = { y: 0, la: 7000, init: false };
+  /* Geglätteter Kamerastand: Höhe über der Bezugsbahn (off) und Blickweite (la); p… = Stand einen Schritt zuvor */
+  const camS = { off: 1000, la: 7000, laV: 0, pOff: 1000, pLa: 7000, init: false };
   const cam3 = { c: [0, 0, 0], r: [1, 0, 0], u: [0, 1, 0], f: [0, 0, 1], vp: new Float32Array(16), tan: 0.56 };
   const fa = mkFrame(), fb = mkFrame(), fc = mkFrame(), fq = mkFrame();
   const batches = new Map();
@@ -403,6 +404,13 @@ void main() {
     baseY[total + 1] = baseY[total];
     skirtY[total + 1] = skirtY[total];
 
+    /* Bezugshöhe für die Kamera: die Fahrbahn ohne Schanzen und Schluchten (siehe refYAt in track.js);
+       im Looping gilt die echte Ringbahn. */
+    const ref = new Float32Array(total + 2);
+    for (let i = 0; i <= total + 1; i++) {
+      const s = segments[i % N];
+      ref[i] = s.loop ? P[Math.min(i, total) * 3 + 1] : s.ref;
+    }
     const inner = new Int8Array(N);                          // Seite, auf der neben einem Looping die andere Bahn liegt
     for (const L of loops) {
       const sg = L.S < 0 ? -1 : 1, m = Math.ceil(L.R / SEG_LEN) + 8;
@@ -487,7 +495,7 @@ void main() {
     const saz = sun ? (sun.x - 640) / 640 : 0.6, sel = sun ? Math.atan((322 - sun.y) / 640) : 0.5;
     const col3 = s => (s ? s.split(',').map(v => +v / 255) : [1, 1, 1]);
     T = {
-      N, total, P, R: Rr, U: Uu, F: Ff, baseY, skirtY, inner, lapPsi, yaw: 0, onB: false, ce: 0, cb: 0,
+      N, total, P, R: Rr, U: Uu, F: Ff, baseY, skirtY, inner, ref, lapPsi, yaw: 0, onB: false, ce: 0, cb: 0,
       meshes: [terr, road, rails, deco, pads, check], terr, road, rails, deco, pads, check,
       sky: th.sky.map(h => hexRgb(h).map(v => v / 255)), fog: hexRgb(theme.fog).map(v => v / 255),
       sunDir: [Math.sin(saz) * Math.cos(sel), Math.sin(sel), Math.cos(saz) * Math.cos(sel)],
@@ -534,45 +542,62 @@ void main() {
   }
 
   /* ================= Kamera ================= */
+  const refAt = e => { const i = Math.floor(e); return lerp(T.ref[i], T.ref[i + 1], e - i); };
+  /* 1 = normale Bahn (Kamera senkrecht darüber), 0 = im Looping (Kamera folgt der Bahn); weicher Übergang */
+  const flatOf = uy => { const t = clamp((uy - 0.25) / 0.63, 0, 1); return t * t * (3 - 2 * t); };
   function tick(dt) {
     if (!ready || !T || !player) return;
     locate();
     const p = player, ep = ext(p.z);
     if (isNaN(ep)) return;
     frame(T.ce, fc);
-    frame(ep, fa);
-    const wantY = Math.max(fa.p[1] + CAM_H + p.h * 0.78, fc.p[1] + 420);
+    camS.pOff = camS.off;
+    camS.pLa = camS.la;
+    // Höhe: folgt dem Fahrer, im Sprung und auf Schanzen aber nur zu gut drei Vierteln; nie zu dicht über der Bahn
+    // unter der Kamera. Gemerkt wird die Höhe über der Bezugsbahn – so fährt die Kamera Hügel und Ring ohne Nachhängen mit.
+    const refC = refAt(T.ce), onRing = !!segments[Math.floor(T.cb) % T.N].loop;
+    const hRef = Math.max(0, p.yAbs - refAt(ep));
+    const want = Math.max(p.yAbs + CAM_H - 0.22 * hRef - refC, onRing ? CAM_H * fc.u[1] : 420);
     let la = 900;                                            // Blick weit voraus – in engen Kurven und Loopings näher
-    for (const cand of [7000, 3500, 1800]) {
-      const e = ext(p.z + cand);
-      if (isNaN(e)) continue;
+    for (let d = 1200; d <= 7000; d += 290) {
+      const e = ext(p.z + d);
+      if (isNaN(e)) break;
       frame(e, fq);
-      if (dotv(fq.f, fc.f) > 0.82) { la = cand; break; }
+      if (dotv(fq.f, fc.f) < 0.82) break;
+      la = d;
     }
-    if (!camS.init || Math.abs(camS.y - wantY) > 3000) {    // Start oder Sprung an eine andere Stelle: sofort hin
-      camS.y = wantY;
-      camS.la = la;
+    if (!camS.init || Math.abs(camS.off - want) > 3000) {   // Start oder Sprung an eine andere Stelle: sofort hin
+      camS.off = camS.pOff = want;
+      camS.la = camS.pLa = la;
+      camS.laV = 0;
       camS.init = true;
     } else {
-      camS.y = fc.u[1] > 0.9 ? damp(camS.y, wantY, 14, dt) : fc.p[1] + fc.u[1] * CAM_H;
-      camS.la = damp(camS.la, la, 4, dt);
+      camS.off = damp(camS.off, want, 14, dt);
+      // Blickweite federnd nachführen: Wert und Tempo bleiben stetig, auch wenn das Ziel springt
+      camS.laV += (30 * (la - camS.la) - 11 * camS.laV) * dt;
+      camS.la += camS.laV * dt;
     }
   }
 
-  function setCamera() {
+  /* a = Anteil des laufenden Schritts (Zwischenbild, siehe game.js) */
+  function setCamera(a) {
     const p = player;
     frame(T.ce, fc);
-    const flat = clamp((fc.u[1] - 0.55) / 0.35, 0, 1);
-    const lp = add(add(fc.p, fc.u, CAM_H), fc.r, cam.x);
-    const c = [lp[0], lerp(lp[1], camS.y, flat), lp[2]];
+    const off = lerp(camS.pOff, camS.off, a), la = lerp(camS.pLa, camS.la, a);
+    const flat = flatOf(fc.u[1]);
+    // Auf normaler Bahn steht die Kamera senkrecht über der Fahrbahn (kein Zucken an Rampen und in Schräglage),
+    // im Looping folgt sie der Bahn-Senkrechten.
+    const lp = add(fc.p, fc.r, cam.x), tilt = CAM_H * (1 - flat);
+    const c = [lp[0] + fc.u[0] * tilt, lerp(lp[1] + fc.u[1] * CAM_H, refAt(T.ce) + off, flat), lp[2] + fc.u[2] * tilt];
     if (shake > 0.3) {
       c[0] += (Math.random() - 0.5) * shake * 3;
       c[1] += (Math.random() - 0.5) * shake * 3;
     }
-    let e = ext(p.z + camS.la);
+    let e = ext(p.z + la);
     if (isNaN(e)) e = T.ce + 20;
     frame(e, fq);
     const q = add(fq.p, fq.u, 150);
+    q[1] += refAt(e) - fq.p[1];                              // Schanzen und Schluchten lenken den Blick nicht ab
     const f = normv([q[0] - c[0], q[1] - c[1], q[2] - c[2]]);
     const hint = normv([fc.u[0] * (1 - 0.45 * flat), fc.u[1] * (1 - 0.45 * flat) + 0.45 * flat, fc.u[2] * (1 - 0.45 * flat)]);
     const r = normv(crossv(hint, f)), u = crossv(f, r);
@@ -642,13 +667,13 @@ void main() {
   const actors = [];
 
   /* ================= Bild zeichnen ================= */
-  function draw() {
+  function draw(a) {
     if (!ready || !T || !player) return false;
     const w = canvas.width, h = canvas.height;
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
     locate();
     if (!camS.init) tick(0);
-    setCamera();
+    setCamera(a == null ? 1 : a);
     const N = T.N, e0 = Math.max(0, Math.floor(T.ce) - BEHIND), e1 = Math.min(T.total, Math.floor(T.ce) + VIEW);
     const c = cam3.c, RW = ROAD_W;
 
@@ -907,6 +932,7 @@ void main() {
     get ready() { return ready && !!T; },
     get available() { return ready; },
     info: () => T,
+    get cam() { return cam3; },
     setFront(v) { FRONT = v; },
   };
 })();

@@ -16,6 +16,13 @@ function roadYAt(z) {
   return lerp(s.p1.world.y, s.p2.world.y, t);
 }
 
+/* Bezugshöhe: die Fahrbahn ohne Schanzen und Schluchten. Daran richtet sich die Kamera aus, damit das Bild
+   an Schanzen- und Abbruchkanten nicht zuckt. */
+function refYAt(z) {
+  const s = findSegment(z);
+  return lerp(s.ref, segments[(s.index + 1) % segments.length].ref, mod(z, SEG_LEN) / SEG_LEN);
+}
+
 /* ================= Zonen ================= */
 
 /* Zone: Boden-/Fahrbahnfarben (hell, dunkel), Randstreifen, Leitplanke, Kulissenregeln */
@@ -508,6 +515,19 @@ function loadTrack(id) {
   const N = segments.length;
   segments[N - 1].p2.world.y = segments[0].p1.world.y;
   TRACK_LEN = N * SEG_LEN;
+
+  /* ---------- Bezugshöhe (siehe refYAt): Schluchten aufgefüllt, Schanzen abgetragen ---------- */
+  for (let i = 0; i < N; i++) {
+    const s = segments[i];
+    s.ref = s.p1.world.y + (s.gap && segments[(i - 1 + N) % N].gap ? GAP_DEPTH : 0);
+  }
+  for (let i = 1; i < N; i++) {
+    if (!segments[i].ramp || segments[i - 1].ramp) continue;
+    let j = i;
+    while (j < N - 1 && segments[j].ramp) j++;             // j = Segment hinter der Kante; es beginnt noch oben
+    const end = Math.min(j + 1, N - 1);                    // erst danach liegt die Bahn wieder auf Grundhöhe
+    for (let m = i + 1; m < end; m++) segments[m].ref = lerp(segments[i].ref, segments[end].ref, (m - i) / (end - i));
+  }
 
   /* ---------- Kulissen ---------- */
   const add = (i, name, x, extra) => {
