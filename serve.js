@@ -1,11 +1,12 @@
-// Mini-Webserver zum lokalen Testen:  node serve.js  ->  http://localhost:5173
+// Mini-Webserver zum lokalen Testen:  node serve.js  ->  http://localhost:4711
 // (Das Spiel läuft auch ohne Server per Doppelklick auf index.html.)
+// Bewusst nicht 5173: Das ist der Standardport vieler Entwicklungsserver (Vite) und war dadurch schon doppelt belegt.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = __dirname;
-const PORT = Number(process.env.PORT) || 5173;
+const PORT = Number(process.env.PORT) || 4711;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',

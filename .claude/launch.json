@@ -5,7 +5,7 @@
       "name": "toma-riders",
       "runtimeExecutable": "node",
       "runtimeArgs": ["serve.js"],
-      "port": 5173
+      "port": 4711
     }
   ]
 }
