@@ -696,6 +696,14 @@ const Story = (() => {
       if (fresh || save.ch >= CHAPTERS.length) { save = { ch: 0, deaths: 0, done: save.done }; persist(); }
       enter(save.ch);
     },
+    /* Einstieg in ein frei gewähltes Kapitel (Kapitelwahl im Menü). Der Spielstand springt mit, damit
+       »Story fortsetzen« von dort weiterführt; nach einer abgeschlossenen Story beginnt die Zählung neu. */
+    beginAt(i) {
+      save = { ch: clamp(i | 0, 0, CHAPTERS.length - 1), deaths: save.ch >= CHAPTERS.length ? 0 : save.deaths, done: save.done };
+      persist();
+      enter(save.ch);
+    },
+    chapters: () => CHAPTERS.map(c => ({ title: c.title, track: c.track, laps: c.laps, boss: !!c.boss, finale: !!c.finale, goalText: c.goalText })),
     status() {
       const i = Math.min(save.ch, CHAPTERS.length - 1);
       return { ch: save.ch, total: CHAPTERS.length, title: CHAPTERS[i].title, done: save.done, deaths: save.deaths, finished: save.ch >= CHAPTERS.length };

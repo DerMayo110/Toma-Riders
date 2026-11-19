@@ -10,7 +10,7 @@ const STEP = 1 / 60;
 const DIFF = [0.92, 1.0, 1.05];
 let AI_PACE = 1.03;              // Grundtempo aller Gegner (gleicht Drift-Turbos, Loopings und Sprünge des Spielers aus)
 const DIFF_NAMES = ['Locker', 'Normal', 'Profi'];
-const OVERLAYS = ['menu', 'tracks', 'boards', 'vn', 'card', 'results', 'death', 'ending'];
+const OVERLAYS = ['menu', 'tracks', 'chapters', 'boards', 'vn', 'card', 'results', 'death', 'ending'];
 
 /* Götter-Fallen auf der Strecke */
 const HZ = {
@@ -977,27 +977,65 @@ function refreshMenu() {
   $('storyResetBtn').classList.toggle('hidden', st.ch === 0 || st.finished);
 }
 
+/* Kleines Vorschaubild einer Strecke für die Karten der Strecken- und Kapitelwahl */
+function trackPreview(t, locked) {
+  const th = THEMES[t.theme];
+  const pv = document.createElement('div');
+  pv.className = 'tprev';
+  pv.style.background = locked
+    ? 'linear-gradient(180deg, #05020c, #1a0830)'
+    : 'linear-gradient(180deg, ' + th.sky[0] + ' 0%, ' + th.sky[1] + ' 38%, ' + th.sky[2] + ' 62%, ' + t.zones[0].g1 + ' 62%, ' + t.zones[0].g2 + ' 100%)';
+  if (!locked) {
+    const rd = document.createElement('div');
+    rd.className = 'troad';
+    rd.style.background = t.zones[0].r1;
+    rd.style.borderColor = t.zones[0].rumB;
+    pv.append(rd);
+  }
+  return pv;
+}
+
+/* Kapitelwahl: Jedes Kapitel der Story lässt sich direkt ansteuern; markiert ist das Kapitel des Spielstands */
+function buildChapterGrid() {
+  const grid = $('chapGrid');
+  grid.textContent = '';
+  const st = Story.status();
+  const div = (cls, text) => {
+    const d = document.createElement('div');
+    d.className = cls;
+    d.textContent = text;
+    return d;
+  };
+  Story.chapters().forEach((c, i) => {
+    const t = TRACKS.find(k => k.id === c.track);
+    const here = !st.finished && i === st.ch;
+    const card = document.createElement('button');
+    card.className = 'tcard' + (here ? ' sel' : '');
+    const kick = div('tkick', c.finale ? 'Finale' : 'Kapitel ' + (i + 1));
+    if (here) {
+      const mark = document.createElement('span');
+      mark.className = 'bsel';
+      mark.textContent = 'Dein Stand';
+      kick.append(mark);
+    }
+    card.append(
+      trackPreview(t, false), kick, div('tname', c.title),
+      div('tsub', t.name + '  ·  ' + (c.boss ? 'Bosskampf' : c.laps + ' Runden')),
+      div('tgoal', 'Ziel: ' + c.goalText));
+    card.addEventListener('click', () => { Sfx.init(); Story.beginAt(i); });
+    grid.append(card);
+  });
+}
+
 function buildTrackGrid() {
   const grid = $('trackGrid');
   grid.textContent = '';
   const done = Story.status().done;
   for (const t of TRACKS) {
     const locked = t.locked && !done;
-    const th = THEMES[t.theme];
     const card = document.createElement('button');
     card.className = 'tcard' + (locked ? ' locked' : '');
-    const pv = document.createElement('div');
-    pv.className = 'tprev';
-    pv.style.background = locked
-      ? 'linear-gradient(180deg, #05020c, #1a0830)'
-      : 'linear-gradient(180deg, ' + th.sky[0] + ' 0%, ' + th.sky[1] + ' 38%, ' + th.sky[2] + ' 62%, ' + t.zones[0].g1 + ' 62%, ' + t.zones[0].g2 + ' 100%)';
-    if (!locked) {
-      const rd = document.createElement('div');
-      rd.className = 'troad';
-      rd.style.background = t.zones[0].r1;
-      rd.style.borderColor = t.zones[0].rumB;
-      pv.append(rd);
-    }
+    const pv = trackPreview(t, locked);
     const nm = document.createElement('div');
     nm.className = 'tname';
     nm.textContent = locked ? '???' : t.name;
@@ -1449,7 +1487,7 @@ onAction = a => {
   if (ui === 'card') { if (ok) Story.go(); else if (a === 'pause') toMenu(); return; }
   if (ui === 'death') { if (ok || a === 'restart') Story.retry(); else if (a === 'pause') toMenu(); return; }
   if (ui === 'ending') { if (ok) toMenu(); return; }
-  if (ui === 'tracks') { if (a === 'pause') { showUI('menu'); refreshMenu(); } return; }
+  if (ui === 'tracks' || ui === 'chapters') { if (a === 'pause') { showUI('menu'); refreshMenu(); } return; }
   if (ui === 'boards') { if (a === 'pause') closeBoards(); return; }
   if (ui === 'menu') { if (a === 'confirm') Story.begin(false); return; }
   if (ui === 'results') {
@@ -1470,6 +1508,8 @@ $('storyBtn').addEventListener('click', () => { Sfx.init(); Story.begin(false); 
 $('storyResetBtn').addEventListener('click', () => { Sfx.init(); Story.begin(true); });
 $('freeBtn').addEventListener('click', () => { buildTrackGrid(); showUI('tracks'); });
 $('tracksBack').addEventListener('click', () => { showUI('menu'); refreshMenu(); });
+$('chapBtn').addEventListener('click', e => { e.currentTarget.blur(); buildChapterGrid(); showUI('chapters'); });
+$('chapBack').addEventListener('click', () => { showUI('menu'); refreshMenu(); });
 for (const id of ['boardBtn', 'tracksBoard', 'cardBoard']) $(id).addEventListener('click', e => { e.currentTarget.blur(); openBoards(); });
 $('boardsBack').addEventListener('click', closeBoards);
 
@@ -1487,7 +1527,7 @@ $('deathRetry').addEventListener('click', () => Story.retry());
 $('deathMenu').addEventListener('click', toMenu);
 $('endMenu').addEventListener('click', toMenu);
 
-// nur die Schwierigkeits-Knöpfe – „Brett“ und „Grafik“ sehen gleich aus, stellen aber nichts an der Schwierigkeit um
+// nur die Schwierigkeits-Knöpfe – „Brett“ und „Kapitel wählen“ sehen gleich aus, stellen aber nichts an der Schwierigkeit um
 const DIFF_CHIPS = document.querySelectorAll('.chip[data-diff]');
 DIFF_CHIPS.forEach(b => {
   b.addEventListener('click', () => {

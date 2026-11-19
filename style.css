@@ -257,7 +257,7 @@ kbd {
 .tbtn.on { background: rgba(125, 255, 216, .6); }
 
 /* ================= Story, Streckenwahl, Karten ================= */
-#tracks, #boards, #card, #death, #ending { background: rgba(6, 14, 40, .6); }
+#tracks, #chapters, #boards, #card, #death, #ending { background: rgba(6, 14, 40, .6); }
 #death { background: rgba(30, 4, 10, .72); }
 
 .big.alt {
@@ -343,6 +343,22 @@ kbd {
 }
 .tname { font-size: calc(var(--u) * 17); font-weight: 800; padding: 0 calc(var(--u) * 4); }
 .tsub { font-size: calc(var(--u) * 13); color: #a9c8ea; padding: 0 calc(var(--u) * 4) calc(var(--u) * 2); }
+
+/* Kapitelwahl: Streckenkarten mit Kapitelzeile; das Kapitel des Spielstands ist hervorgehoben */
+.tcard.sel { border-color: #ffd34d; background: rgba(255, 211, 77, .13); }
+.tkick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: calc(var(--u) * 20);
+  padding: 0 calc(var(--u) * 4);
+  font-size: calc(var(--u) * 12);
+  font-weight: 800;
+  letter-spacing: calc(var(--u) * 2);
+  text-transform: uppercase;
+  color: #7dffd8;
+}
+.tgoal { font-size: calc(var(--u) * 13); font-weight: 700; color: #ffd34d; padding: 0 calc(var(--u) * 4) calc(var(--u) * 2); }
 
 /* Brettwahl */
 .bgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--u) * 12); width: 100%; }
