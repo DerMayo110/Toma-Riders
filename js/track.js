@@ -19,8 +19,10 @@ function roadYAt(z) {
 
 /* ================= Zonen ================= */
 
-/* Zone: Boden-/Fahrbahnfarben (hell, dunkel), Randstreifen, Leitplanke, Kulissenregeln */
-const zoneDef = (name, g1, g2, r1, r2, rumB, rail, scenery) => ({ name, g1, g2, r1, r2, rumA: '#f2f5f9', rumB, rail, scenery });
+/* Zone: Bodenfarben (hell, dunkel), Fahrbahnfarben für flache Bilder (r1, r2), Randstreifen, Leitplanke, Kulissenregeln.
+   Belag (surf) und Tönung (t1, t2) für die 3D-Fahrbahn kommen aus SURFACES weiter unten. */
+const zoneDef = (name, g1, g2, r1, r2, rumB, rail, scenery) =>
+  ({ name, g1, g2, r1, r2, rumA: '#f2f5f9', rumB, rail, scenery, surf: 'asphalt', t1: '#ffffff', t2: '#ececec' });
 
 /* Kulissenregel: alle e Segmente (Phase ph) Sprite s im Abstand a..b (in Streckenhalbbreiten) */
 const S = (e, ph, s, a, b, o) => Object.assign({ e, ph, s, a, b: b == null ? a : b, p: 1, both: false }, o);
@@ -114,6 +116,38 @@ const Z_OLY = [
   ]),
 ];
 
+/* Fahrbahnbelag je Zone, passend zur Umgebung: [Belag, Tönung hell, Tönung dunkel, Flächenfarbe hell, Flächenfarbe dunkel].
+   Die Beläge zeichnet world3d.js (ROAD_ART). Steinplatten und Erde sind dort neutral hell und bekommen ihre Farbe von der
+   Tönung; bei Basalt, Irrgarten und Glas färbt die Tönung die leuchtenden Risse und Linien. Die Flächenfarben nehmen
+   die flachen Bilder (Streckenkarte, Zwischensequenz). */
+const SURFACES = {
+  'Skyline Boulevard':       ['asphalt', '#ffffff', '#ececec', '#646c79', '#5d6572'],
+  'Bay Bridge':              ['deck',    '#ffffff', '#eeeeee', '#7b8494', '#727b8b'],
+  'Neon Park':               ['pavers',  '#c6d0e0', '#bac4d4', '#8f97a6', '#868e9d'],
+  'Hafenkai':                ['pavers',  '#f4deb0', '#e8d2a4', '#cdb58a', '#c2aa80'],
+  'Mole':                    ['planks',  '#ffffff', '#f0f0f0', '#946d47', '#89633f'],
+  'Altstadt':                ['pavers',  '#fff6e8', '#f2e9da', '#d9cdb6', '#cfc3ac'],
+  'Agora':                   ['pavers',  '#f2d19a', '#e6c58e', '#c9aa78', '#bfa06e'],
+  'Heiliger Weg':            ['dirt',    '#e2c392', '#d6b786', '#a88a60', '#9e8057'],
+  'Akropolis':               ['marble',  '#ffffff', '#f1f1f1', '#e9e6de', '#dedbd3'],
+  'Der Pass':                ['dirt',    '#e2a474', '#d69868', '#9c6748', '#925e40'],
+  'Schmiede des Hephaistos': ['basalt',  '#ff9a4a', '#f08c3c', '#3e3032', '#372a2c'],
+  'Bronzefeld':              ['bronze',  '#ffffff', '#f0f0f0', '#a9773b', '#9e6e34'],
+  'Palasttor':               ['maze',    '#ff9ccb', '#f08ebc', '#40364e', '#393047'],
+  'Irrgarten':               ['maze',    '#7fe9ff', '#70dcf2', '#2e3654', '#28304b'],
+  'Stierhof':                ['maze',    '#ffd98a', '#f2cc7c', '#4c3d3c', '#453635'],
+  'Asphodeloswiese':         ['dirt',    '#9cada6', '#90a19a', '#4e5854', '#47504c'],
+  'Styx':                    ['glass',   '#c9b0ff', '#bca2f2', '#22283a', '#1d2333'],
+  'Tor zum Tartaros':        ['basalt',  '#ff6a5a', '#f05c4e', '#3c2a30', '#35242a'],
+  'Wolkentor':               ['cloud',   '#ffffff', '#f3f3f3', '#f0effa', '#e6e5f2'],
+  'Halle der Götter':        ['marble',  '#fff0c8', '#f4e4ba', '#efe2b8', '#e5d8ac'],
+  'Blitzkamm':               ['basalt',  '#9fdcff', '#90cff2', '#5a6078', '#535970'],
+};
+for (const z of [Z_SKY, Z_PIR, Z_AKR, Z_THE, Z_KNO, Z_STY, Z_OLY].flat()) {
+  const s = SURFACES[z.name];
+  if (s) Object.assign(z, { surf: s[0], t1: s[1], t2: s[2], r1: s[3], r2: s[4] });
+}
+
 /* Tartaros: alle Orte stürzen ineinander – Zonen aus den anderen Strecken, dazu Sanduhren */
 const rift = (z, name) => Object.assign({}, z, { name, rail: '#d0a0ff', scenery: z.scenery.concat([S(40, 19, 'hourglass', 2.2, 3.5)]) });
 const Z_TAR = [
@@ -125,8 +159,11 @@ const Z_TAR = [
    Abschnitt:  [Einfahrt, Halten, Ausfahrt, Kurve, Hügel, Optionen]   oder   { loop: Segmente, zone }
    Kurve: +rechts/−links (2 leicht … 6 hart, 7–9 Haarnadel: ohne Drift trägt es dich an die Bande)
    Hügel in Segmentlängen, 'home' = zurück auf Höhe 0. Kurze, steile Hügel werden zu Sprungkuppen.
-   Optionen: zone (Zonenwechsel) · ramp (Schanze am Ende, Stärke 1 … 1.8) · gap (Schlucht dahinter, in Segmenten)
-             kind ('pads' | 'slalom' | 'orbs')
+   Optionen: zone (Zonenwechsel) · ramp (Schanze am Ende, Stärke 1 … 2.4; ab 2 Riesenschanze) · gap (Schlucht dahinter, in Segmenten)
+             kind ('pads' | 'slalom' | 'orbs' | 'turbo' = Pfeilfeld an Pfeilfeld | 'gauntlet' = Engstelle mit dichten Hindernissen)
+   Jede Strecke hat einen Schwerpunkt (siehe Kommentar an der Strecke), damit sie sich verschieden anfühlen.
+   Grenzen: Gefälle je Abschnitt höchstens Hügel/Länge ≈ 0,6; in einem Fenster von 300 Segmenten nie mehr als etwa
+   250° in dieselbe Richtung drehen (sonst läuft die Bahn sichtbar über sich selbst).
    abyss: Farben der Schluchten [Grund, Wand] */
 
 let loops = [];                // Loopings der geladenen Strecke
@@ -138,201 +175,235 @@ const LAND_LEN = 34;           // gerade Landezone hinter einer Schlucht
 
 const BRAZIER = { s: 'brazier', e: 16, x: 1.3 };
 
+/* Bausteine für die Abschnittslisten (jeweils eine Liste von Abschnitten, mit ... einzufügen) */
+/* Wellenbahn: n Kuppen der Höhe h – jede wirft den Fahrer in die Luft */
+const waves = (n, h, len = 15) => Array.from({ length: n }, () => [[len, len + 6, len, 0, h], [len, len + 6, len, 0, -h]]).flat();
+/* Haken: n schnelle Richtungswechsel mit Kurvenwert c */
+const zigzag = (n, c, hold, ease = 10) => Array.from({ length: n }, (_, i) => [ease, hold, ease, i % 2 ? -c : c, 0]);
+/* Inselhüpfen: n Schanzen mit Schlucht dahinter. Der Abstand ist so gewählt, dass man auch mit Boost
+   vor der nächsten Schlucht wieder aufsetzt. */
+const islands = (n, power, gap, o) => Array.from({ length: n }, (_, i) => [14, 60, 14, 0, 0, Object.assign({ ramp: power, gap }, i ? null : o)]);
+
 const TRACKS = [
+  /* Neo-Skyline – Vollgas: Turbo-Geraden, weite Bögen, ein Riesen-Looping und der Sprung über die Bucht */
   {
-    id: 'sky', name: 'Neo-Skyline', sub: 'Heimstrecke · mittel', theme: 'city', tune: 0, arch: 'arch', obst: 'barrier',
+    id: 'sky', name: 'Neo-Skyline', sub: 'Vollgas-Boulevard · mittel', theme: 'city', tune: 0, arch: 'arch', obst: 'barrier',
     lamp: { s: 'lamp', e: 22, x: 0.95, flip: true }, zones: Z_SKY, seed: 4711, danger: 0.5, abyss: ['#1668b8', '#2a3550'],
     sections: [
       [0, 50, 0, 0, 0],
-      [30, 50, 30, 3, 6],
-      [20, 30, 20, 0, 0, { kind: 'pads' }],
-      { loop: 140 },
-      [40, 60, 40, -5, 14],
-      [25, 25, 25, 4, 0],
-      [25, 25, 25, -4, 0],
-      [20, 40, 20, 0, 6, { ramp: 1.2, gap: 14, zone: 1 }],
-      [40, 80, 40, 6, -12],
-      [15, 20, 15, 0, 9],
-      [15, 20, 15, 0, -9],
-      [30, 60, 30, -7, 0, { zone: 2 }],
-      [20, 50, 20, 0, 0, { kind: 'slalom' }],
-      [20, 40, 20, 0, 8, { ramp: 1.6 }],
-      [40, 40, 40, 0, -16],
-      [40, 70, 40, 5, 'home'],
+      [20, 110, 20, 0, -14, { kind: 'turbo' }],
+      [50, 90, 50, 4, 0],
+      [20, 40, 20, 0, 0, { kind: 'pads' }],
+      { loop: 190 },
+      [50, 90, 50, -4, 10],
+      [20, 50, 20, 0, 6, { ramp: 2.0, gap: 40, zone: 1 }],
+      [30, 90, 30, 0, -20],
+      [60, 110, 60, 5, 0],
+      [20, 120, 20, 0, 0, { kind: 'turbo' }],
+      [40, 70, 40, -5, 12, { zone: 2 }],
+      [20, 60, 20, 0, 0, { kind: 'slalom' }],
+      ...waves(2, 12),
+      [20, 40, 20, 0, 6, { ramp: 1.5 }],
+      [40, 60, 40, 0, -18],
+      [50, 90, 50, -4, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
+  /* Piräus – Inselhüpfen: vier Sprünge von Mole zu Mole, dazu Wellen und ein großer Satz zurück zum Kai */
   {
-    id: 'piraeus', name: 'Hafen von Piräus', sub: 'Hellas · leicht', theme: 'hellasDay', tune: 1, arch: 'archG', obst: 'amph',
+    id: 'piraeus', name: 'Hafen von Piräus', sub: 'Inselhüpfen · leicht', theme: 'hellasDay', tune: 1, arch: 'archG', obst: 'amph',
     lamp: BRAZIER, zones: Z_PIR, seed: 11, danger: 0.3, abyss: ['#1479c4', '#8a7a5a'],
     sections: [
       [0, 50, 0, 0, 0],
       [30, 50, 30, 3, 0],
-      [20, 40, 20, 0, 8, { ramp: 1 }],
-      [30, 40, 30, 0, -8],
-      [30, 60, 30, -4, 6],
-      [20, 40, 20, 0, 0, { zone: 1, kind: 'pads' }],
+      [20, 40, 20, 0, 0, { kind: 'pads' }],
+      ...islands(4, 1.1, 12, { zone: 1 }),
+      [40, 70, 40, -4, 6],
       { loop: 130 },
-      [40, 80, 40, 5, 0],
+      [40, 80, 40, 5, 0, { zone: 2 }],
       [20, 50, 20, 0, 0, { kind: 'slalom' }],
-      [20, 40, 20, 0, 6, { ramp: 1.1, gap: 10 }],
-      [30, 50, 30, -5, 0, { zone: 2 }],
+      ...waves(2, 9),
+      [20, 40, 20, 0, 8, { ramp: 1.4, gap: 18 }],
+      [30, 50, 30, 0, -14],
+      [30, 50, 30, -4, 'home'],
       [25, 25, 25, 4, 0],
-      [25, 25, 25, -4, 0],
-      [15, 20, 15, 0, 8],
-      [20, 30, 20, 0, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
+  /* Akropolis – Bergrennen: Serpentinen 80 Segmentlängen hinauf, oben ein Looping, dann der Klippensprung */
   {
-    id: 'akropolis', name: 'Akropolis-Ring', sub: 'Athen · mittel', theme: 'hellasDusk', tune: 1, arch: 'archG', obst: 'amph',
+    id: 'akropolis', name: 'Akropolis-Ring', sub: 'Bergrennen · mittel', theme: 'hellasDusk', tune: 1, arch: 'archG', obst: 'amph',
     lamp: BRAZIER, zones: Z_AKR, seed: 23, danger: 0.5, abyss: ['#2a1e30', '#7a5f48'],
     sections: [
       [0, 50, 0, 0, 0],
-      [30, 60, 30, -4, 14],
+      [30, 50, 30, -4, 6],
       [20, 40, 20, 0, 0, { kind: 'pads' }],
+      [30, 60, 30, 8, 16, { zone: 1 }],
+      [20, 30, 20, 0, 8],
+      [30, 60, 30, -8, 16],
+      [20, 30, 20, 0, 8],
+      [30, 60, 30, 8, 16],
+      [20, 40, 20, 0, 10, { zone: 2, kind: 'orbs' }],
       { loop: 140 },
-      [40, 70, 40, 6, 18, { zone: 1 }],
-      [25, 30, 25, -5, 0],
-      [25, 30, 25, 5, 0],
-      [20, 50, 20, 0, 10, { ramp: 1.5, gap: 20, zone: 2 }],
-      [40, 40, 40, 0, -30],
-      [40, 80, 40, -7, 0],
+      [20, 50, 20, 0, 4, { ramp: 2.1 }],
+      [20, 80, 20, 0, -56],
+      [20, 120, 20, 0, -10, { kind: 'orbs' }],
+      [30, 60, 30, -6, 0],
       [20, 60, 20, 0, 0, { kind: 'slalom' }],
-      [15, 20, 15, 0, 10],
-      [15, 20, 15, 0, -10],
-      [30, 50, 30, 6, -12],
-      [20, 40, 20, 0, 8, { ramp: 1.1 }],
+      ...waves(2, 11),
+      [40, 70, 40, 7, -8],
+      [20, 40, 20, 0, 6, { ramp: 1.3, gap: 22 }],
       [40, 60, 40, -4, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
+  /* Thermopylen – Drift-Pass: Haarnadel an Haarnadel den Pass hinauf, Lavasprung, Doppel-Looping */
   {
-    id: 'thermo', name: 'Thermopylen-Schmiede', sub: 'Sparta · schwer', theme: 'canyon', tune: 2, arch: 'archG', obst: 'amph',
+    id: 'thermo', name: 'Thermopylen-Schmiede', sub: 'Drift-Pass · schwer', theme: 'canyon', tune: 2, arch: 'archG', obst: 'amph',
     lamp: { s: 'brazierF', e: 16, x: 1.3 }, zones: Z_THE, seed: 37, danger: 0.7, abyss: ['#ff5a1f', '#3a1a14'],
     sections: [
       [0, 50, 0, 0, 0],
-      [30, 40, 30, 5, 0],
-      [30, 40, 30, -5, 10],
-      [20, 50, 20, 0, 10, { ramp: 1.5, gap: 22 }],
-      [40, 40, 40, 0, -26, { zone: 1 }],
-      [40, 80, 40, 8, 0],
+      [30, 40, 30, 5, 6],
+      [30, 70, 30, -8, 8],
+      [14, 16, 14, 0, 0],
+      [30, 70, 30, 9, 8],
+      [14, 16, 14, 0, 0],
+      [30, 70, 30, -9, 8],
+      [14, 16, 14, 0, 0],
+      [30, 60, 30, 8, 6],
+      [20, 50, 20, 0, 6, { ramp: 1.6, gap: 26, zone: 1 }],
+      [40, 60, 40, 0, -30],
       [20, 40, 20, 0, 0, { kind: 'pads' }],
       { loop: 140 },
-      { loop: 120 },
-      [40, 60, 40, -6, 14],
-      [25, 25, 25, 5, 0],
-      [25, 25, 25, -5, 0],
-      [25, 25, 25, 5, 0],
-      [15, 20, 15, 0, 11, { zone: 2 }],
-      [15, 20, 15, 0, -11],
-      [40, 80, 40, -8, 0],
-      [20, 50, 20, 0, 0, { kind: 'slalom' }],
-      [20, 40, 20, 0, 8, { ramp: 1.2 }],
+      { loop: 110 },
+      [40, 80, 40, 9, 0],
+      [20, 40, 20, 0, 0, { kind: 'gauntlet' }],
+      [40, 80, 40, -9, 0, { zone: 2 }],
+      ...waves(2, 11),
+      [30, 50, 30, 7, 0],
+      [30, 50, 30, -7, 0],
+      [20, 40, 20, 0, 6, { ramp: 1.3 }],
       [30, 50, 30, 4, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
+  /* Knossos – Irrgarten: rechte Winkel, schnelle Haken und Engstellen; flach, eng, kaum eine Gerade */
   {
-    id: 'knossos', name: 'Labyrinth von Knossos', sub: 'Kreta · schwer', theme: 'night', tune: 3, arch: 'archG', obst: 'amph',
+    id: 'knossos', name: 'Labyrinth von Knossos', sub: 'Irrgarten · schwer', theme: 'night', tune: 3, arch: 'archG', obst: 'amph',
     lamp: BRAZIER, zones: Z_KNO, seed: 41, danger: 0.6, abyss: ['#07060f', '#2a2140'],
     sections: [
       [0, 40, 0, 0, 0],
-      [25, 30, 25, 6, 0],
-      [25, 30, 25, -6, 0],
-      [20, 30, 20, 0, 0, { kind: 'orbs' }],
-      [30, 60, 30, 8, 0, { zone: 1 }],
-      [25, 25, 25, -7, 0],
-      [25, 25, 25, 7, 0],
+      ...zigzag(4, 8, 22),
+      [16, 30, 16, 0, 0, { kind: 'gauntlet' }],
+      [14, 56, 14, 9, 0, { zone: 1 }],
+      [10, 20, 10, 0, 0],
+      [14, 56, 14, -9, 0],
+      [10, 20, 10, 0, 0],
+      [14, 56, 14, -9, 0],
+      [10, 20, 10, 0, 0, { kind: 'orbs' }],
+      [14, 56, 14, 9, 0],
       [20, 40, 20, 0, 8, { ramp: 1.3, gap: 16 }],
       [30, 30, 30, 0, -8],
-      [40, 80, 40, -9, 0],
-      { loop: 130 },
-      [30, 40, 30, 6, 0, { zone: 2 }],
-      [15, 20, 15, 0, 10],
-      [15, 20, 15, 0, -10],
-      [30, 40, 30, -6, 8],
+      ...zigzag(6, 9, 18, 8),
+      { loop: 100, zone: 2 },
+      [16, 40, 16, 0, 0, { kind: 'gauntlet' }],
+      [14, 56, 14, -9, 0],
+      [10, 16, 10, 0, 0],
+      [14, 56, 14, 9, 0],
+      ...waves(1, 10),
       [20, 50, 20, 0, 0, { kind: 'slalom' }],
       [30, 60, 30, -7, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
+  /* Styx – Achterbahn: Sturz in die Unterwelt, Wellenbahnen, Dreifach-Looping, Sprung in den Abgrund */
   {
-    id: 'styx', name: 'Ufer des Styx', sub: 'Unterwelt · schwer', theme: 'underworld', tune: 4, arch: 'archG', obst: 'amph',
+    id: 'styx', name: 'Ufer des Styx', sub: 'Achterbahn · schwer', theme: 'underworld', tune: 4, arch: 'archG', obst: 'amph',
     lamp: { s: 'brazierG', e: 16, x: 1.3 }, zones: Z_STY, seed: 53, danger: 0.7, abyss: ['#0f6a5a', '#152a2a'],
     sections: [
       [0, 50, 0, 0, 0],
-      [40, 80, 40, -4, -20],
-      [15, 20, 15, 0, 10],
-      [15, 20, 15, 0, -10],
-      [15, 20, 15, 0, 10],
-      [15, 20, 15, 0, -10],
-      [50, 100, 50, 7, -10, { zone: 1 }],
+      [20, 60, 20, 0, -40],
+      ...waves(4, 13, 14),
+      [40, 70, 40, -6, -16, { zone: 1 }],
       [20, 40, 20, 0, 0, { kind: 'pads' }],
       { loop: 150 },
-      [30, 40, 30, -8, 0],
-      [30, 40, 30, 8, 0],
-      [20, 50, 20, 0, 12, { ramp: 1.7, gap: 26 }],
-      [40, 50, 40, 0, -24, { zone: 2 }],
-      [40, 80, 40, -6, 10],
-      [20, 50, 20, 0, 0, { kind: 'slalom' }],
       { loop: 120 },
+      { loop: 95 },
+      [30, 50, 30, 8, 0],
+      [30, 50, 30, -8, 0],
+      [20, 50, 20, 0, 10, { ramp: 1.9, gap: 30 }],
+      [30, 80, 30, 0, -34, { zone: 2 }],
+      [40, 70, 40, 6, 0],
+      ...waves(3, 15, 16),
+      [20, 50, 20, 0, 0, { kind: 'slalom' }],
+      [20, 40, 20, 0, 26, { kind: 'turbo' }],
+      [30, 50, 30, -5, 24],
+      [20, 40, 20, 0, 16, { ramp: 1.5 }],
       [40, 60, 40, 5, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
+  /* Olymp – Himmelsleiter: Sprung um Sprung hinauf, Dreifach-Looping, dann der Göttersprung durch die Wolken */
   {
-    id: 'olymp', name: 'Gipfel des Olymp', sub: 'Über den Wolken · sehr schwer', theme: 'olymp', tune: 5, arch: 'archG', obst: 'amph',
+    id: 'olymp', name: 'Gipfel des Olymp', sub: 'Himmelsleiter · sehr schwer', theme: 'olymp', tune: 5, arch: 'archG', obst: 'amph',
     lamp: BRAZIER, zones: Z_OLY, seed: 67, danger: 0.6, abyss: ['#9fd0ff', '#e4e6f6'],
     sections: [
       [0, 50, 0, 0, 0],
-      [30, 60, 30, 4, 24],
-      [20, 40, 20, 0, 10, { ramp: 1.6, gap: 24 }],
-      [40, 40, 40, 0, -28],
-      [50, 90, 50, -7, 12, { zone: 1 }],
+      [30, 60, 30, 4, 20],
+      [20, 50, 20, 0, 10, { ramp: 1.8, gap: 34 }],
+      [20, 60, 20, 0, 14],
+      [20, 50, 20, 0, 10, { ramp: 1.8, gap: 34 }],
+      [20, 60, 20, 0, 14],
+      [50, 90, 50, -7, 10, { zone: 1 }],
       [20, 40, 20, 0, 0, { kind: 'pads' }],
-      { loop: 150 },
-      [30, 30, 30, 6, 0],
-      [30, 30, 30, -6, 0],
-      [15, 20, 15, 0, 12],
-      [15, 20, 15, 0, -12],
-      [20, 50, 20, 0, 10, { ramp: 1.4, zone: 2 }],
-      [40, 50, 40, 0, -26],
+      { loop: 170 },
+      { loop: 140 },
+      { loop: 110 },
+      [30, 40, 30, 6, 0],
+      [30, 40, 30, -6, 0],
+      ...waves(2, 14),
+      [20, 50, 20, 0, 8, { ramp: 2.3, zone: 2 }],
+      [20, 110, 20, 0, -70],
+      [20, 100, 20, 0, 0, { kind: 'turbo' }],
       [50, 80, 50, 8, 0],
-      [20, 60, 20, 0, 0, { kind: 'slalom' }],
-      { loop: 130 },
-      [40, 60, 40, -5, 14],
-      [20, 40, 20, 0, 8, { ramp: 1.7, gap: 28 }],
-      [40, 50, 40, 0, -22],
+      [20, 60, 20, 0, 0, { kind: 'gauntlet' }],
+      [40, 60, 40, -5, 10],
+      [20, 40, 20, 0, 8, { ramp: 1.9, gap: 44 }],
+      [40, 70, 40, 0, -26],
       [40, 60, 40, 4, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
+  /* Tartaros – alles auf einmal: Haken, Haarnadeln, Dreifach-Looping, Wellen, Inseln und der größte Sprung des Spiels */
   {
-    id: 'tartaros', name: 'Tartaros – Der Zeitriss', sub: 'Jenseits der Zeit · brutal', theme: 'void', tune: 6, arch: 'archG', obst: 'amph', locked: true,
+    id: 'tartaros', name: 'Tartaros – Der Zeitriss', sub: 'Alles auf einmal · brutal', theme: 'void', tune: 6, arch: 'archG', obst: 'amph', locked: true,
     lamp: { s: 'brazierG', e: 16, x: 1.3 }, zones: Z_TAR, seed: 79, danger: 0.8, abyss: ['#12001f', '#3a155a'],
     sections: [
       [0, 50, 0, 0, 0],
       [30, 50, 30, 6, 0, { zone: 1 }],
-      [30, 50, 30, -6, 12],
-      [20, 40, 20, 0, 8, { ramp: 1.6, gap: 26, zone: 2 }],
-      [40, 40, 40, 0, -28],
-      [50, 80, 50, 9, 0, { zone: 3 }],
-      [25, 25, 25, -7, 0],
-      [25, 25, 25, 7, 0],
-      [25, 25, 25, -7, 0],
+      ...zigzag(4, 8, 22),
+      [20, 50, 20, 0, 10, { ramp: 2.0, gap: 36, zone: 2 }],
+      [30, 80, 30, 0, -36],
+      [40, 80, 40, 9, 0, { zone: 3 }],
+      [14, 16, 14, 0, 0],
+      [40, 80, 40, -9, 0],
       { loop: 150 },
       { loop: 120 },
-      [20, 60, 20, 0, 0, { kind: 'slalom', zone: 4 }],
-      [40, 70, 40, -8, 14],
-      [15, 20, 15, 0, 12],
-      [15, 20, 15, 0, -12],
-      [20, 40, 20, 0, 8, { ramp: 1.8, gap: 30, zone: 5 }],
-      [40, 40, 40, 0, -30],
-      [40, 60, 40, 6, 0],
-      [20, 50, 20, 0, 0, { kind: 'pads', zone: 0 }],
+      { loop: 95 },
+      [20, 60, 20, 0, 0, { kind: 'gauntlet', zone: 4 }],
+      ...waves(3, 15, 16),
+      [40, 70, 40, -8, 16],
+      [20, 40, 20, 0, 22, { kind: 'turbo' }],
+      [20, 50, 20, 0, 10, { ramp: 2.4, zone: 5 }],
+      [20, 120, 20, 0, -60],
+      [20, 90, 20, 0, 0, { kind: 'orbs' }],
+      [40, 60, 40, 6, 12],
+      ...islands(3, 1.3, 16, { zone: 0 }),
+      [20, 70, 20, 0, 0, { kind: 'pads' }],      // Auslauf: von der letzten Insel fliegt man sonst in den Looping hinein
       { loop: 130 },
-      [30, 50, 30, -4, 'home'],
+      [30, 50, 30, -7, 14],
+      [20, 50, 20, 0, 0, { kind: 'slalom' }],
+      [30, 50, 30, 5, 'home'],
       [0, 40, 0, 0, 0],
     ],
   },
@@ -382,6 +453,18 @@ function autoProps(p, secs, def) {
       p.pad(start + 14, R() < 0.5 ? -0.45 : 0.45);
       p.orbs(start + 28, clamp(Math.floor((len - 44) / 6), 2, 6), 6, 0);
       if (len >= 90) p.pad(start + len - 30, 0);
+    } else if (kind === 'turbo') {                                          // Turbo-Gerade: Pfeilfeld an Pfeilfeld, die Spur wechselt
+      let k = si;
+      for (let i = start + 10; i < start + len - 14; i += 24, k++) p.pad(i, [0, 0.42, -0.42][k % 3], 0.24, 8);
+      p.orbs(start + 16, clamp(Math.floor(len / 14), 3, 9), 12, 0);
+    } else if (kind === 'gauntlet') {                                       // Engstelle: dichte Hindernisse, die freie Spur wechselt
+      const xs = [0.55, -0.55, 0.15, -0.6, 0.6, -0.15];
+      let k = si;
+      for (let i = start + 16; i < start + len - 10; i += 13, k++) {
+        const x = xs[k % xs.length];
+        p.barrier(i, x);
+        p.orbs(i, 1, 1, x > 0 ? x - 0.55 : x + 0.55);
+      }
     } else if (kind === 'slalom') {
       const xs = [0.5, -0.5, 0, 0.6, -0.6, 0.25, -0.25];
       let k = si;
@@ -443,7 +526,7 @@ function loadTrack(id) {
   /* Schanze: Keil auf den letzten Segmenten des Abschnitts; dahinter fällt die Fahrbahn zurück auf baseY.
      Mit gap folgt eine Schlucht samt gerader Landezone. Abgehoben wird rein physikalisch (siehe checkLaunch). */
   function kicker(power, gap) {
-    const nK = power > 1.3 ? 14 : 10;
+    const nK = power > 1.9 ? 18 : power > 1.3 ? 14 : 10;
     const rise = KICK_SLOPE * power * SEG_LEN;
     const first = segments.length - nK;
     for (let k = 0; k < nK; k++) {
@@ -600,7 +683,7 @@ function loadTrack(id) {
     }
     s.col = {
       ground: s.dark ? mix(A.g2, B.g2, t) : mix(A.g1, B.g1, t),
-      road: s.dark ? mix(A.r2, B.r2, t) : mix(A.r1, B.r1, t),
+      tint: s.dark ? mix(A.t2, B.t2, t) : mix(A.t1, B.t1, t),          // Tönung des Fahrbahnbelags
       rumble: s.dark ? mix(A.rumB, B.rumB, t) : mix(A.rumA, B.rumA, t),
       rail: mix(A.rail, B.rail, t),
     };

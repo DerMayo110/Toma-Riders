@@ -31,7 +31,7 @@ const W3 = (() => {
   let T = null;                  // Daten der geladenen Strecke
   let atlasCv = null, atlasCtx = null, atlasTex = null;
   /* Geglätteter Kamerastand: Höhe über der Bezugsbahn (off) und Blickweite (la); p… = Stand einen Schritt zuvor */
-  const camS = { off: 1000, la: 7000, laV: 0, pOff: 1000, pLa: 7000, init: false };
+  const camS = { off: 1000, la: 7000, laV: 0, pOff: 1000, pLa: 7000, hi: 0, pHi: 0, init: false };   // hi = Flughöhe über der Bezugsbahn
   const cam3 = { c: [0, 0, 0], r: [1, 0, 0], u: [0, 1, 0], f: [0, 0, 1], vp: new Float32Array(16), tan: 0.56 };
   const fa = mkFrame(), fb = mkFrame(), fc = mkFrame(), fq = mkFrame();
   const batches = new Map();
@@ -59,14 +59,12 @@ in vec2 vUv; in vec4 vCol; in float vDepth;
 uniform sampler2D uTex;
 uniform vec3 uFog;
 uniform float uFogD, uCut, uTime, uFlip;
-uniform int uMode;     // 0 Textur*Farbe · 1 Fahrbahn (R = Körnung, G = Linien) · 2 leuchtend · 3 bewegte Fläche
+uniform int uMode;     // 0 Textur*Farbe · 1 Fahrbahn (Belag aus dem Atlas, von der Zone getönt) · 2 leuchtend · 3 bewegte Fläche
 out vec4 o;
 void main() {
   vec4 c;
   if (uMode == 1) {
-    vec4 t = texture(uTex, vUv);
-    vec3 base = vCol.rgb * (0.8 + 0.36 * t.r);
-    c = vec4(mix(base, vec3(0.94, 0.96, 1.0), t.g * 0.92), 1.0);
+    c = vec4(texture(uTex, vUv).rgb * vCol.rgb, 1.0);
     if ((gl_FrontFacing ? 1.0 : -1.0) * uFlip < 0.0) c.rgb = c.rgb * 0.34 + vec3(0.02, 0.03, 0.06);   // Unterseite (Looping)
   } else if (uMode == 3) {
     float n = texture(uTex, vUv + vec2(uTime * 0.013, uTime * 0.008)).r * 0.5
@@ -150,8 +148,9 @@ void main() {
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, o.repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, o.repeat === true ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+    // repeat: true = beide Richtungen · 's' = nur quer · 't' = nur längs
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, o.repeat && o.repeat !== 't' ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, o.repeat === true || o.repeat === 't' ? gl.REPEAT : gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     if (o.mip === false) gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     else {
@@ -162,25 +161,321 @@ void main() {
     return t;
   }
 
+  /* ================= Fahrbahnbeläge =================
+     Je Belag eine Kachel: quer 4000 Einheiten (die ganze Bahnbreite), längs 2400 (12 Segmente). Gezeichnet wird in
+     Welt-Einheiten, alle Muster wiederholen sich längs nahtlos. Welche Zone welchen Belag trägt, steht in track.js
+     (SURFACES); die Zone tönt ihn zusätzlich ein – bei Basalt, Irrgarten und Glas bestimmt die Tönung die Leuchtfarbe. */
+  const SURF = ['plain', 'asphalt', 'deck', 'planks', 'pavers', 'marble', 'dirt', 'basalt', 'bronze', 'maze', 'glass', 'cloud'];
+  const SURF_W = 256, SURF_H = 1024, SURF_PAD = 16, SURF_LEN = 12;
+  const RU = 4000, RL = 2400;
+  const surfU = (id, u) => (id + (SURF_PAD + u * (SURF_W - 2 * SURF_PAD)) / SURF_W) / SURF.length;
+
+  /* n Rechtecke zufällig verteilt; was unten übersteht, erscheint oben wieder */
+  function speck(g, R, n, col, w0, w1, h0, h1) {
+    for (let i = 0; i < n; i++) {
+      const x = R() * RU, y = R() * RL, w = w0 + R() * (w1 - w0), h = h0 + R() * (h1 - h0);
+      g.fillStyle = col(R);
+      g.fillRect(x, y, w, h);
+      if (y + h > RL) g.fillRect(x, y - RL, w, h);
+    }
+  }
+  function dot(g, x, y, r) {
+    for (const oy of [0, -RL, RL]) {
+      if (y + oy + r < 0 || y + oy - r > RL) continue;
+      g.beginPath();
+      g.arc(x, y + oy, r, 0, TAU);
+      g.fill();
+    }
+  }
+  /* Strichlinien auf den Spurgrenzen */
+  function dashes(g, col, w, len, period) {
+    g.fillStyle = col;
+    for (const x of [RU / 3, 2 * RU / 3]) for (let y = 0; y < RL; y += period) g.fillRect(x - w / 2, y, w, len);
+  }
+  /* Risse: Zickzack-Linien längs der Bahn, außen ein weicher Schein, innen hell */
+  function cracks(g, R, n, halo, core) {
+    const paths = [];
+    for (let i = 0; i < n; i++) {
+      let x = 300 + R() * (RU - 600), y = R() * RL;
+      const p = [[x, y]];
+      for (let k = 0, m = 5 + (R() * 7 | 0); k < m; k++) {
+        x = clamp(x + (R() - 0.5) * 760, 120, RU - 120);
+        y += 70 + R() * 190;
+        p.push([x, y]);
+        if (R() < 0.3) paths.push([[x, y], [clamp(x + (R() - 0.5) * 900, 120, RU - 120), y + 60 + R() * 160]]);
+      }
+      paths.push(p);
+    }
+    g.lineJoin = g.lineCap = 'round';
+    for (const pass of [[halo, 110], [core, 30]]) {
+      g.strokeStyle = pass[0];
+      g.lineWidth = pass[1];
+      for (const p of paths) for (const oy of [0, -RL]) {
+        g.beginPath();
+        p.forEach((q, i) => (i ? g.lineTo(q[0], q[1] + oy) : g.moveTo(q[0], q[1] + oy)));
+        g.stroke();
+      }
+    }
+  }
+
+  const ROAD_ART = {
+    /* Randstreifen und Schanzenkante: schlichtes Weiß mit etwas Körnung */
+    plain(g, R) {
+      g.fillStyle = '#f3f3f3';
+      g.fillRect(0, 0, RU, RL);
+      speck(g, R, 500, () => 'rgba(0,0,0,' + (0.03 + R() * 0.05).toFixed(3) + ')', 60, 240, 10, 40);
+    },
+    asphalt(g, R) {
+      g.fillStyle = '#6b717d';
+      g.fillRect(0, 0, RU, RL);
+      speck(g, R, 2600, () => (R() < 0.5 ? 'rgba(20,22,30,' : 'rgba(210,215,225,') + (0.08 + R() * 0.14).toFixed(3) + ')', 30, 90, 6, 24);
+      for (let i = 0; i < 14; i++) {                                        // Schleifspuren
+        g.fillStyle = 'rgba(28,30,38,' + (0.08 + R() * 0.12).toFixed(3) + ')';
+        g.fillRect(250 + R() * (RU - 500), 0, 50 + R() * 90, RL);
+      }
+      g.fillStyle = '#e6eaf0';
+      g.fillRect(110, 0, 50, RL);
+      g.fillRect(RU - 160, 0, 50, RL);
+      dashes(g, '#eef1f5', 72, 600, 1200);
+    },
+    /* Stahlplatten einer Brücke: Quernähte, Nieten, Riffelung, gelbe Linien */
+    deck(g, R) {
+      g.fillStyle = '#7e8896';
+      g.fillRect(0, 0, RU, RL);
+      g.fillStyle = 'rgba(255,255,255,.09)';
+      for (let y = 0, r = 0; y < RL; y += 60, r++) for (let x = (r % 2) * 100; x < RU; x += 200) g.fillRect(x, y + 22, 96, 12);
+      speck(g, R, 160, () => 'rgba(120,70,40,' + (0.05 + R() * 0.1).toFixed(3) + ')', 80, 300, 30, 110);
+      for (let y = 0; y < RL; y += 600) {
+        g.fillStyle = '#4c5460';
+        g.fillRect(0, y, RU, 16);
+        g.fillStyle = 'rgba(255,255,255,.28)';
+        g.fillRect(0, y + 16, RU, 9);
+        g.fillStyle = '#3f4651';
+        for (let x = 125; x < RU; x += 250) { dot(g, x, y + 62, 22); dot(g, x, y + 600 - 46, 22); }
+      }
+      g.fillStyle = '#566070';
+      g.fillRect(RU / 2 - 14, 0, 28, RL);
+      g.fillStyle = '#f2c230';
+      g.fillRect(105, 0, 62, RL);
+      g.fillRect(RU - 167, 0, 62, RL);
+      dashes(g, '#f2c230', 62, 300, 600);
+    },
+    /* Holzplanken einer Mole: Bretter quer zur Fahrt, versetzte Stöße, Nägel */
+    planks(g, R) {
+      const tones = ['#a17a4e', '#96704a', '#8a6540', '#ab8558', '#7f5c3a', '#9c7650', '#8f6b46'];
+      g.fillStyle = '#4a3320';
+      g.fillRect(0, 0, RU, RL);
+      for (let y = 0; y < RL; y += 240) {
+        const cuts = [0, 900 + R() * 900, 2200 + R() * 900, RU].sort((a, b) => a - b);
+        for (let i = 0; i < cuts.length - 1; i++) {
+          const x0 = cuts[i], x1 = cuts[i + 1];
+          g.fillStyle = tones[(R() * tones.length) | 0];
+          g.fillRect(x0 + 12, y + 9, x1 - x0 - 24, 222);
+          g.fillStyle = 'rgba(255,240,210,.13)';
+          g.fillRect(x0 + 12, y + 9, x1 - x0 - 24, 14);
+          g.fillStyle = 'rgba(40,24,10,.2)';
+          g.fillRect(x0 + 12, y + 212, x1 - x0 - 24, 19);
+          g.fillStyle = 'rgba(50,30,14,.2)';                                   // Maserung
+          for (let k = 0; k < 7; k++) { const gx = x0 + 30 + R() * (x1 - x0 - 300); g.fillRect(gx, y + 26 + R() * 180, 120 + R() * 500, 5); }
+          g.fillStyle = '#3a2716';                                             // Nägel
+          for (const nx of [x0 + 90, x1 - 90]) { dot(g, nx, y + 70, 15); dot(g, nx, y + 170, 15); }
+        }
+      }
+      g.fillStyle = '#5e4329';                                                 // Randbalken
+      g.fillRect(0, 0, 150, RL);
+      g.fillRect(RU - 150, 0, 150, RL);
+      g.fillStyle = 'rgba(255,235,200,.22)';
+      g.fillRect(150, 0, 36, RL);
+      g.fillRect(RU - 186, 0, 36, RL);
+    },
+    /* Steinplatten im Läuferverband (neutral hell – die Zone tönt sie zu Sandstein, Kalk oder Beton) */
+    pavers(g, R) {
+      g.fillStyle = '#8a8780';
+      g.fillRect(0, 0, RU, RL);
+      for (let y = 0; y < RL; y += 300) {
+        for (let x = -R() * 600; x < RU;) {
+          const w = 450 + R() * 380, v = (198 + R() * 40) | 0;
+          g.fillStyle = 'rgb(' + v + ',' + (v - 3) + ',' + (v - 9) + ')';
+          g.fillRect(x + 20, y + 8, w - 40, 284);
+          g.fillStyle = 'rgba(255,255,255,.16)';
+          g.fillRect(x + 20, y + 8, w - 40, 16);
+          g.fillStyle = 'rgba(0,0,0,.1)';
+          g.fillRect(x + 20, y + 268, w - 40, 24);
+          x += w;
+        }
+      }
+      speck(g, R, 900, () => 'rgba(60,55,45,' + (0.05 + R() * 0.1).toFixed(3) + ')', 30, 110, 6, 22);
+    },
+    /* Marmorplatten mit Adern, außen ein goldenes Mäanderband */
+    marble(g, R) {
+      g.fillStyle = '#eef0f3';
+      g.fillRect(0, 0, RU, RL);
+      speck(g, R, 220, () => 'rgba(150,160,180,' + (0.04 + R() * 0.06).toFixed(3) + ')', 200, 700, 60, 220);
+      g.lineCap = 'round';
+      for (let i = 0; i < 30; i++) {                                           // Adern
+        const x = R() * RU, y = R() * RL, dx = (R() - 0.5) * 1800, dy = 200 + R() * 700;
+        g.strokeStyle = 'rgba(110,122,146,' + (0.14 + R() * 0.18).toFixed(3) + ')';
+        g.lineWidth = 8 + R() * 20;
+        for (const oy of [0, -RL]) {
+          g.beginPath();
+          g.moveTo(x, y + oy);
+          g.bezierCurveTo(x + dx * 0.3 + (R() - 0.5) * 300, y + oy + dy * 0.3, x + dx * 0.7, y + oy + dy * 0.6, x + dx, y + oy + dy);
+          g.stroke();
+        }
+      }
+      g.fillStyle = '#c5c9d2';                                                 // Fugen
+      for (let y = 0; y < RL; y += 1200) g.fillRect(0, y, RU, 10);
+      for (const x of [1000, 2000, 3000]) g.fillRect(x - 14, 0, 28, RL);
+      g.fillStyle = '#c9a24a';                                                 // Mäander
+      for (const x0 of [140, RU - 440]) {
+        g.fillRect(x0, 0, 40, RL);
+        g.fillRect(x0 + 260, 0, 40, RL);
+        for (let y = 0; y < RL; y += 300) {
+          g.fillRect(x0 + 40, y + 20, 150, 36);
+          g.fillRect(x0 + 150, y + 20, 40, 120);
+          g.fillRect(x0 + 110, y + 170, 150, 36);
+          g.fillRect(x0 + 110, y + 170, 40, 120);
+        }
+      }
+      for (const x of [RU / 3, 2 * RU / 3]) for (let y = 300; y < RL; y += 600) {  // Rauten auf den Spurgrenzen
+        g.beginPath();
+        g.moveTo(x, y - 110); g.lineTo(x + 60, y); g.lineTo(x, y + 110); g.lineTo(x - 60, y);
+        g.closePath();
+        g.fill();
+      }
+    },
+    /* Festgefahrene Erde mit Fahrrinnen und Kieseln (neutral hell – die Zone tönt sie) */
+    dirt(g, R) {
+      g.fillStyle = '#cdc6ba';
+      g.fillRect(0, 0, RU, RL);
+      for (let i = 0; i < 90; i++) {
+        g.fillStyle = R() < 0.6 ? 'rgba(110,96,78,' + (0.06 + R() * 0.08).toFixed(3) + ')' : 'rgba(255,255,255,' + (0.05 + R() * 0.07).toFixed(3) + ')';
+        const x = R() * RU, y = R() * RL, rx = 200 + R() * 500, ry = 90 + R() * 240;
+        for (const oy of [0, -RL, RL]) { g.beginPath(); g.ellipse(x, y + oy, rx, ry, 0, 0, TAU); g.fill(); }
+      }
+      g.fillStyle = 'rgba(86,72,56,.13)';                                      // Fahrrinnen
+      for (const cx of [1250, 2750]) for (let y = 0; y < RL; y += 40) g.fillRect(cx - 190 + Math.sin(y / RL * TAU * 2 + cx) * 50, y, 380, 40);
+      for (let i = 0; i < 420; i++) {                                          // Kiesel
+        const x = R() * RU, y = R() * RL, r = 16 + R() * 26;
+        g.fillStyle = 'rgba(70,60,48,.3)';
+        dot(g, x + 8, y + 5, r);
+        g.fillStyle = R() < 0.5 ? '#e9e3d9' : '#a69e92';
+        dot(g, x, y, r);
+      }
+      speck(g, R, 700, () => 'rgba(80,68,54,' + (0.08 + R() * 0.1).toFixed(3) + ')', 30, 90, 6, 18);
+    },
+    /* Dunkler Fels mit hellen Rissen – die Tönung der Zone macht daraus Glut, Blitz oder Höllenrot */
+    basalt(g, R) {
+      g.fillStyle = '#55555e';
+      g.fillRect(0, 0, RU, RL);
+      speck(g, R, 380, () => 'rgba(0,0,0,' + (0.08 + R() * 0.16).toFixed(3) + ')', 120, 520, 40, 170);
+      speck(g, R, 500, () => 'rgba(255,255,255,' + (0.03 + R() * 0.05).toFixed(3) + ')', 40, 140, 8, 28);
+      cracks(g, R, 10, 'rgba(255,255,255,.2)', 'rgba(255,255,255,.96)');
+      g.fillStyle = 'rgba(255,255,255,.8)';
+      for (let i = 0; i < 60; i++) dot(g, R() * RU, R() * RL, 8 + R() * 12);
+    },
+    /* Gehämmerte Bronzeplatten mit Nieten */
+    bronze(g, R) {
+      g.fillStyle = '#5a3c1a';
+      g.fillRect(0, 0, RU, RL);
+      for (let y = 0; y < RL; y += 600) for (let x = 0; x < RU; x += 1000) {
+        g.fillStyle = 'rgb(' + ((172 + R() * 26) | 0) + ',' + ((120 + R() * 20) | 0) + ',' + ((54 + R() * 16) | 0) + ')';
+        g.fillRect(x + 16, y + 7, 968, 586);
+        g.fillStyle = 'rgba(255,232,170,.3)';
+        g.fillRect(x + 16, y + 7, 968, 16);
+        g.fillRect(x + 16, y + 7, 30, 586);
+        g.fillStyle = 'rgba(50,28,8,.25)';
+        g.fillRect(x + 16, y + 571, 968, 22);
+        g.fillStyle = '#4a2f12';
+        for (const rx of [x + 90, x + 910]) for (const ry of [y + 60, y + 540]) dot(g, rx, ry, 24);
+        g.fillStyle = 'rgba(255,235,180,.7)';
+        for (const rx of [x + 82, x + 902]) for (const ry of [y + 54, y + 534]) dot(g, rx, ry, 9);
+      }
+      speck(g, R, 700, () => (R() < 0.5 ? 'rgba(255,230,160,' : 'rgba(60,34,10,') + (0.05 + R() * 0.08).toFixed(3) + ')', 60, 160, 16, 50);
+      speck(g, R, 60, () => 'rgba(70,160,140,' + (0.06 + R() * 0.08).toFixed(3) + ')', 150, 500, 50, 160);
+    },
+    /* Dunkle Fliesen mit hellen Einlegelinien im Mäander – die Tönung der Zone lässt sie leuchten */
+    maze(g, R) {
+      g.fillStyle = '#23252d';
+      g.fillRect(0, 0, RU, RL);
+      for (let y = 0; y < RL; y += 600) for (let x = 0; x < RU; x += 500) {
+        const v = (52 + R() * 16) | 0;
+        g.fillStyle = 'rgb(' + v + ',' + (v + 2) + ',' + (v + 12) + ')';
+        g.fillRect(x + 14, y + 6, 472, 588);
+      }
+      for (const pass of [['rgba(255,255,255,.16)', 60, 26], ['rgba(255,255,255,.95)', 0, 0]]) {
+        const gx = pass[1], gy = pass[2];
+        g.fillStyle = pass[0];
+        g.fillRect(140 - gx, 0, 46 + 2 * gx, RL);
+        g.fillRect(RU - 186 - gx, 0, 46 + 2 * gx, RL);
+        for (const x of [RU / 3, 2 * RU / 3]) for (let y = 0; y < RL; y += 600) {
+          g.fillRect(x - 112 - gx, y - gy, 46 + 2 * gx, 314 + 2 * gy);
+          g.fillRect(x - 112 - gx, y + 300 - gy, 224 + 2 * gx, 16 + 2 * gy);
+          g.fillRect(x + 66 - gx, y + 300 - gy, 46 + 2 * gx, 316 + 2 * gy);
+          g.fillRect(x - 112 - gx, y + 584 - gy, 224 + 2 * gx, 16 + 2 * gy);
+        }
+      }
+      g.strokeStyle = 'rgba(255,255,255,.45)';                                 // kleine Labyrinthe in der Mitte
+      g.lineWidth = 22;
+      for (let y = 300; y < RL; y += 1200) for (const r of [90, 180, 270]) g.strokeRect(RU / 2 - r, y - r, 2 * r, 2 * r);
+    },
+    /* Schwarzes Glas über dem Wasser: Spiegelungen, Leuchtpunkte auf den Spurgrenzen (Tönung = Leuchtfarbe) */
+    glass(g, R) {
+      g.fillStyle = '#2b2d3a';
+      g.fillRect(0, 0, RU, RL);
+      for (let i = 0; i < 46; i++) {
+        g.fillStyle = 'rgba(255,255,255,' + (0.03 + R() * 0.07).toFixed(3) + ')';
+        g.fillRect(R() * RU, 0, 24 + R() * 130, RL);
+      }
+      speck(g, R, 150, () => 'rgba(255,255,255,' + (0.04 + R() * 0.06).toFixed(3) + ')', 300, 900, 6, 13);
+      g.fillStyle = 'rgba(255,255,255,.5)';
+      g.fillRect(130, 0, 40, RL);
+      g.fillRect(RU - 170, 0, 40, RL);
+      for (const x of [RU / 3, 2 * RU / 3]) for (let y = 150; y < RL; y += 300) {
+        g.fillStyle = 'rgba(255,255,255,.16)';
+        dot(g, x, y, 95);
+        g.fillStyle = 'rgba(255,255,255,.95)';
+        dot(g, x, y, 36);
+      }
+    },
+    /* Wolkenbahn: weiche Ballen, goldene Striche */
+    cloud(g, R) {
+      g.fillStyle = '#e4e9f8';
+      g.fillRect(0, 0, RU, RL);
+      for (let i = 0; i < 260; i++) {
+        const x = R() * RU, y = R() * RL, r = 150 + R() * 300, blue = R() < 0.25;
+        for (const oy of [0, -RL, RL]) {
+          if (y + oy + r < 0 || y + oy - r > RL) continue;
+          const gr = g.createRadialGradient(x, y + oy, r * 0.1, x, y + oy, r);
+          gr.addColorStop(0, blue ? 'rgba(160,178,226,.3)' : 'rgba(255,255,255,.95)');
+          gr.addColorStop(1, blue ? 'rgba(160,178,226,0)' : 'rgba(255,255,255,0)');
+          g.fillStyle = gr;
+          g.fillRect(x - r, y + oy - r, 2 * r, 2 * r);
+        }
+      }
+      g.fillStyle = '#e3bd55';
+      g.fillRect(120, 0, 44, RL);
+      g.fillRect(RU - 164, 0, 44, RL);
+      dashes(g, '#e3bd55', 60, 220, 600);
+    },
+  };
+
   function makeTextures() {
     const R = mulberry32(99);
     tex.white = texFrom(mk(4, 4, g => { g.fillStyle = '#fff'; g.fillRect(0, 0, 4, 4); }), { mip: false });
 
-    // Fahrbahn: Rot = Körnung, Grün = Linienmaske; eine Kachel = 6 Segmente, Strichlinien in der ersten Hälfte
-    tex.road = texFrom(mk(256, 512, (g, w, h) => {
-      g.fillStyle = 'rgb(128,0,0)';
-      g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 5200; i++) {
-        g.fillStyle = 'rgb(' + ((70 + R() * 130) | 0) + ',0,0)';
-        g.fillRect(R() * w, R() * h, 1 + R() * 2.5, 1 + R() * 5);
-      }
-      for (let i = 0; i < 26; i++) {                       // Reifen-/Schleifspuren
-        g.fillStyle = 'rgba(' + ((60 + R() * 60) | 0) + ',0,0,.35)';
-        g.fillRect(20 + R() * (w - 40), 0, 2 + R() * 5, h);
-      }
-      g.fillStyle = 'rgb(128,255,0)';
-      for (const u of [1 / 3, 2 / 3]) g.fillRect(u * w - 2.2, 0, 4.4, h / 2);
-    }), { repeat: true });
+    // Fahrbahn: alle Beläge nebeneinander in einem Bild. Jede Spalte hat links und rechts einen verlängerten Rand,
+    // damit in der Ferne (verkleinerte Fassungen) keine Farbe des Nachbarn hineinläuft.
+    tex.road = texFrom(mk(SURF_W * SURF.length, SURF_H, g => {
+      SURF.forEach((name, i) => {
+        const iw = SURF_W - 2 * SURF_PAD;
+        const tile = mk(iw, SURF_H, c => { c.scale(iw / RU, SURF_H / RL); ROAD_ART[name](c, mulberry32(7 + i * 31)); });
+        const x0 = i * SURF_W;
+        g.drawImage(tile, x0 + SURF_PAD, 0);
+        g.drawImage(tile, 0, 0, 1, SURF_H, x0, 0, SURF_PAD, SURF_H);
+        g.drawImage(tile, iw - 1, 0, 1, SURF_H, x0 + SURF_W - SURF_PAD, 0, SURF_PAD, SURF_H);
+      });
+    }), { repeat: 't' });
 
     // Boden: helle, fleckige Körnung zum Einfärben
     tex.ground = texFrom(mk(256, 256, (g, w, h) => {
@@ -456,14 +751,16 @@ void main() {
       }
 
       if (!s.gap) {                                          // Fahrbahn mit Randstreifen
-        const rc = s.launch ? white : rgb(c.road), ru = rgb(c.rumble);
-        const v0 = k / 6, v1 = (k + 1) / 6;
+        // Belag der Zone aus dem Atlas, von ihr getönt; Schanzenkante und Randstreifen nehmen die schlichte Kachel
+        const si = SURF.indexOf(track.zones[s.zone].surf), sid = s.launch ? 0 : si < 0 ? 1 : si;
+        const rc = s.launch ? white : rgb(c.tint), ru = rgb(c.rumble), up = surfU(0, 0.5);
+        const v0 = k / SURF_LEN, v1 = (k + 1) / SURF_LEN;
         const q = (o1, o2, u1, u2, col) => road.quad(
           road.v(edge(pa, ra, ua, o1, 0), u1, v0, col, sh), road.v(edge(pa, ra, ua, o2, 0), u2, v0, col, sh),
           road.v(edge(pb, rb, ub, o2, 0), u2, v1, col, sh), road.v(edge(pb, rb, ub, o1, 0), u1, v1, col, sh));
-        q(-1, 1, 0, 1, rc);
-        q(-1.075, -1, 0.02, 0.02, ru);
-        q(1, 1.075, 0.02, 0.02, ru);
+        q(-1, 1, surfU(sid, 0), surfU(sid, 1), rc);
+        q(-1.075, -1, up, up, ru);
+        q(1, 1.075, up, up, ru);
 
         // Leitplanken
         const rl = rgb(c.rail);
@@ -558,8 +855,12 @@ void main() {
     // unter der Kamera. Gemerkt wird die Höhe über der Bezugsbahn – so fährt die Kamera Hügel und Ring ohne Nachhängen mit.
     const refC = refAt(T.ce), onRing = !!segments[Math.floor(T.cb) % T.N].loop;
     const hRef = Math.max(0, p.yAbs - refAt(ep));
-    const want = Math.max(p.yAbs + CAM_H - 0.22 * hRef - refC, onRing ? CAM_H * fc.u[1] : 420);
-    let la = 900;                                            // Blick weit voraus – in engen Kurven und Loopings näher
+    // Der Rückstand wächst mit der Flughöhe, aber nur bis gut 600 Einheiten: Bei Klippensprüngen hoch über der Bahn
+    // bliebe der Fahrer sonst weit über der Kamera.
+    const want = Math.max(p.yAbs + CAM_H - 620 * Math.tanh(0.22 * hRef / 620) - refC, onRing ? CAM_H * fc.u[1] : 420);
+    camS.pHi = camS.hi;
+    camS.hi = hRef;
+    let la = 900;                                           // Blick weit voraus – in engen Kurven und Loopings näher
     for (let d = 1200; d <= 7000; d += 290) {
       const e = ext(p.z + d);
       if (isNaN(e)) break;
@@ -571,9 +872,12 @@ void main() {
       camS.off = camS.pOff = want;
       camS.la = camS.pLa = la;
       camS.laV = 0;
+      camS.pHi = hRef;
       camS.init = true;
     } else {
-      camS.off = damp(camS.off, want, 14, dt);
+      // Bei sehr schnellem Steigen oder Fallen (Riesensprünge) höchstens 520 Einheiten nachhängen – sonst rutscht
+      // der Fahrer kurz vor der Landung unten aus dem Bild
+      camS.off = clamp(damp(camS.off, want, 14, dt), want - 520, want + 520);
       // Blickweite federnd nachführen: Wert und Tempo bleiben stetig, auch wenn das Ziel springt
       camS.laV += (30 * (la - camS.la) - 11 * camS.laV) * dt;
       camS.la += camS.laV * dt;
@@ -599,6 +903,15 @@ void main() {
     frame(e, fq);
     const q = add(fq.p, fq.u, 150);
     q[1] += refAt(e) - fq.p[1];                              // Schanzen und Schluchten lenken den Blick nicht ab
+    // Hoch in der Luft (Riesenschanze, Klippensprung) nicht steil hinunter auf die ferne Bahn schauen: Der Blick hebt
+    // sich so weit, dass der Fahrer im oberen Bilddrittel bleibt statt oben aus dem Bild zu fliegen.
+    const wHi = clamp((lerp(camS.pHi, camS.hi, a) - 1500) / 1500, 0, 1);
+    const eR = wHi > 0 ? ext(p.z) : NaN;
+    if (!isNaN(eR)) {
+      frame(eR, fq);
+      const lim = c[1] + Math.hypot(q[0] - c[0], q[2] - c[2]) * ((fq.p[1] + p.h - c[1]) / CAM_D - 0.2);
+      if (q[1] < lim) q[1] = lerp(q[1], lim, wHi);
+    }
     const f = normv([q[0] - c[0], q[1] - c[1], q[2] - c[2]]);
     const hint = normv([fc.u[0] * (1 - 0.45 * flat), fc.u[1] * (1 - 0.45 * flat) + 0.45 * flat, fc.u[2] * (1 - 0.45 * flat)]);
     const r = normv(crossv(hint, f)), u = crossv(f, r);
@@ -820,7 +1133,9 @@ void main() {
       const e = ext(r.z);
       if (isNaN(e) || e < e0 + 1) continue;
       frame(e, fa);
-      const pos = add(add(fa.p, fa.r, r.x * RW), fa.u, r.h);
+      // Die Flughöhe zählt senkrecht nach oben, nicht entlang der Bahn-Senkrechten: Hoch über steilem Gefälle
+      // (Klippensprung) stünde der Fahrer sonst weit vor seinem wirklichen Ort.
+      const pos = add(add(fa.p, fa.r, r.x * RW), [0, 1, 0], r.h);
       const dz = (pos[0] - c[0]) * cam3.f[0] + (pos[1] - c[1]) * cam3.f[1] + (pos[2] - c[2]) * cam3.f[2];
       if (dz < 150) continue;
       actors.push({ r, pos, dz, u: fa.u.slice(), rr: fa.r.slice(), f: fa.f.slice(), ground: add(add(fa.p, fa.r, r.x * RW), fa.u, 10) });

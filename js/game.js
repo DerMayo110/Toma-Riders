@@ -9,6 +9,7 @@ const FONT = '"Arial Black", "Segoe UI Black", Impact, sans-serif';
 const STEP = 1 / 60;
 const DIFF = [0.92, 1.0, 1.05];
 let AI_PACE = 1.03;              // Grundtempo aller Gegner (gleicht Drift-Turbos, Loopings und Sprünge des Spielers aus)
+let AI_HAIRPIN = 0.3;            // so viel Tempo nehmen die Gegner in der engsten Haarnadel heraus
 const DIFF_NAMES = ['Locker', 'Normal', 'Profi'];
 const OVERLAYS = ['menu', 'tracks', 'chapters', 'boards', 'vn', 'card', 'results', 'death', 'ending'];
 
@@ -239,7 +240,20 @@ function flightLeft(r, dt, lead) {
 function checkLaunch(r, dt) {
   const v = r.speed;
   if (v < 2500) return;
-  const z = r.z, y0 = roadYAt(z);
+  /* Normalfall: Der Fahrer steht noch vor der Kante, und die Bahn fällt im nächsten Schritt unter ihm weg.
+     Sonderfall: Er hat die Kante einer Schanze in diesem Schritt schon überfahren, ohne dass davor geprüft wurde –
+     bei hohem Tempo ist ein Schritt länger als ein Segment, etwa nach einer Landung kurz vor der Kante. Dann hebt
+     er nachträglich von der Kante ab (past = seither geflogene Strecke), statt die Abbruchkante hinunterzurutschen. */
+  let z = r.z, past = 0;
+  const step = v * dt, iNow = Math.floor(z / SEG_LEN);
+  for (let k = 1; k * SEG_LEN < step + SEG_LEN; k++) {
+    const s = segments[mod(iNow - k, segments.length)];
+    if (!s.launch) continue;
+    const d = mod(z - (s.index + 1) * SEG_LEN, TRACK_LEN);
+    if (d < step) { past = d + 1; z = mod(z - past, TRACK_LEN); }
+    break;
+  }
+  const y0 = roadYAt(z);
   const vy = (y0 - roadYAt(z - 120)) / 120 * v;
   if (y0 + vy * dt - 0.5 * GRAVITY * dt * dt <= roadYAt(z + v * dt) + 1) return;      // der Boden trägt noch
   if (y0 + vy * 0.1 - 45 <= roadYAt(z + v * 0.1) + 12) return;                        // nur ein Knick, kein Absprung
@@ -247,6 +261,11 @@ function checkLaunch(r, dt) {
   r.airT = 0;
   r.vy = Math.min(vy, JUMP_V * 2.4);
   r.yAbs = y0;
+  if (past) {
+    const t = past / v;
+    r.yAbs += r.vy * t - 0.5 * GRAVITY * t * t;
+    r.vy -= GRAVITY * t;
+  }
   r.tricks = 0;
   r.trick = null;
 
@@ -747,6 +766,8 @@ function updateAI(r, dt) {
   let top = MAX_SPEED * r.skill * skillMul * DIFF[difficulty] * AI_PACE;
   top *= 1 + clamp((player.dist - r.dist) / 250000, -0.06, 0.05);       // Gummiband: vorn etwas langsamer, hinten etwas schneller
   top *= 1 - Math.abs(seg.curve) * 0.006;
+  // In Haarnadeln (Kurve über 6) nehmen die Gegner deutlich Tempo heraus – wer driftet, zieht dort vorbei
+  top *= 1 - clamp((Math.abs(seg.curve) - 6) / 3, 0, 1) * AI_HAIRPIN;
   if (r.boostT > 0) { r.boostT -= dt; top *= 1.28; }
   // Schwurbund: Robin und Jario halten Formation knapp vor Toma, egal wie schnell er gerade ist
   const escort = r.ally && state === 'race' && !player.finished && !r.finished;
