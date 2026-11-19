@@ -2,7 +2,7 @@
 
 /* Finale: Bosskampf gegen Kronos. Kein Rennen – die Toma Heroes jagen ihn über die Strecke.
    Ablauf in Runden: Kronos greift an (Zeitrisse, Echos) → Robin oder Jario bringt seinen Zeitschild zum Flackern
-   → Toma fährt mit Boost in ihn hinein. Verloren ist, wenn der Fadenbund reißt oder der Sand durchgelaufen ist. */
+   → Toma fährt mit Boost in ihn hinein. Verloren ist, wenn der Schwurbund reißt oder der Sand durchgelaufen ist. */
 
 const BOSS_CFG = [               // je Schwierigkeit: Schildstärke, Fadenstärke, Sekunden Sand, Länge des Zeitfensters
   { hp: 5, thread: 6, time: 175, open: 6.5 },
@@ -18,13 +18,13 @@ const BOSS_PLAN = [
 ];
 const BOSS_LANES = [-0.55, 0, 0.55];
 const BOSS_FINAL_PLAN = [[0.8, 'echo', 2], [2.4, 'rift', 1]];      // nach der Krise: kurze Angriffe, dann rammt Martin erneut
-const BOSS_TAUNT = ['', 'Ich kenne jede Linie, die du fahren wirst!', 'Dann halte ich die Zeit eben mit Gewalt an!'];
+const BOSS_TAUNT = ['', 'Ich fahre diese Strecke seit zwölftausend Jahren!', 'ICH WILL NUR HEIM!'];
 
 /* Die Krise: Sobald nur noch ein Schildsegment steht, schlägt Kronos zurück. Robin und Jario fallen aus,
-   der Fadenbund hängt am letzten Knoten – bis Martin Swagger über seinen Stolz springt. [Sekunde, Aktion] */
+   der Schwurbund hängt am letzten Knoten – bis Martin Swagger über seinen Stolz springt. [Sekunde, Aktion] */
 const BOSS_CRISIS = [
   [0, B => {
-    bossSay('kronos', 'GENUG! Ich drehe die Uhr um – und diesmal bleibt ihr liegen.');
+    bossSay('kronos', 'GENUG! Heute mache ich Feierabend – und wenn ich euch dafür überrollen muss!');
     B.guard = true;
     B.down = true;
     racers.forEach((r, i) => {
@@ -44,9 +44,9 @@ const BOSS_CRISIS = [
   [1.3, () => bossAttack('echo', 3)],
   [2.3, () => bossSay('robin', 'Toma! Mein Brett ist hin – ich komm nicht mehr an ihn ran!')],
   [3.7, () => bossAttack('rift', 1)],
-  [4.7, () => bossSay('jario', 'Die Sanduhr ist gesperrt. Ich kann sie nicht mehr hacken!')],
+  [4.7, () => bossSay('jario', 'Sein Glas ist versiegelt. Ich komme nicht mehr durch!')],
   [5.8, () => bossAttack('echo', 3)],
-  [7.0, () => bossSay('kronos', 'Niemand kommt mehr, Junge. Du bist allein. So wie ich es immer war.')],
+  [7.0, () => bossSay('kronos', 'Niemand kommt mehr, Kollege. Für Bereitschaft reicht einer.')],
   [8.2, () => bossAttack('rift', 0)],
   [10.0, () => bossMartin()],
   [12.8, () => bossSay('martin', 'Erzähl das bloß keinem, Lioumba. Und jetzt halt dich bereit!')],
@@ -63,7 +63,7 @@ function bossReset() {
   if (!k) return;
   const c = BOSS_CFG[difficulty];
   k.big = 1.75;
-  player.energy = 100;                              // Martin gibt Apollons Gunst weiter: volle Energie zum Start
+  player.energy = 100;                              // die Argonauten leeren ihre Aether-Reserven in Tomas Brett: volle Energie zum Start
   boss = {
     k, hp: c.hp, hpMax: c.hp, thread: c.thread, threadMax: c.thread, time: c.time, timeMax: c.time, openLen: c.open,
     phase: 'intro', t: 0, step: 0, delay: 0, cycle: 0, tier: 0, free: 1,
@@ -79,7 +79,7 @@ function bossSay(who, text) {
   Sfx.blip();
 }
 
-/* Martin Swagger stößt dazu: Er hat seinen Faden an den Bund geknotet, um durch den Riss zu kommen */
+/* Martin Swagger stößt dazu: Er hat Kronos das Korn gebracht – jetzt knotet der Kollege seinen Faden an den Bund der Toma Heroes */
 function bossMartin() {
   const B = boss, p = player;
   const m = makeRacer(RACER.martin, clamp(p.x > 0 ? p.x - 0.5 : p.x + 0.5, -0.7, 0.7), p.dist - 2500, false);
@@ -103,13 +103,13 @@ function bossMartin() {
   Sfx.lap();
   popup('MARTIN SWAGGER!', '#ffd76a', 1.9);
   popup('VIER FÄDEN, EIN KNOTEN!', '#7dffd8', 1.9);
-  bossSay('martin', 'Allein? Von wegen. Der Riss lässt nur Knoten durch – also hab ich mich drangeknotet.');
+  bossSay('martin', 'Allein? Von wegen. Ich habe es angefasst – also bringe ich es in Ordnung. Einer für alle!');
 }
 
 function bossFailText() {
   return boss && boss.lost === 'time'
     ? 'Der Sand ist durchgelaufen. Kronos hält die Zeit an – für immer.'
-    : 'Der Fadenbund ist gerissen. Die Moiren schneiden alle drei Fäden auf einmal.';
+    : 'Der Schwurbund ist gerissen. Die Moiren schneiden alle drei Fäden auf einmal.';
 }
 
 function bossPhase(ph) {
@@ -134,12 +134,12 @@ function bossOpen() {
   if (B.final) {
     B.guard = false;                                 // ab hier zählt wieder jeder Treffer
     popup('MARTIN RAMMT DEN ZEITSCHILD!', '#ffd76a', 1.5);
-    bossSay('martin', 'JETZT, KURIER! Ich halte ihn fest – gib ihm den Rest!');
+    bossSay('martin', 'JETZT, LIOUMBA! Ich halte ihn fest – gib ihm den Rest!');
     p.energy = Math.max(p.energy, BOOST_COST * 2);
   } else popup(robin ? 'ROBIN RAMMT DEN ZEITSCHILD!' : 'JARIO HACKT DIE SANDUHR!', robin ? '#ffb46a' : '#8fc0ff', 1.3);
   if (p.energy < BOOST_COST) {
-    p.energy = BOOST_COST;                           // der Fadenbund teilt seine Energie: ein Boost ist immer drin
-    popup('FADENBUND: ENERGIE FÜR DICH!', '#7dffd8', 1.1);
+    p.energy = BOOST_COST;                           // der Schwurbund teilt seine Energie: ein Boost ist immer drin
+    popup('SCHWURBUND: ENERGIE FÜR DICH!', '#7dffd8', 1.1);
   }
   Sfx.smash();
   Sfx.rewind();
@@ -153,7 +153,7 @@ function bossAttack(type, n) {
   const B = boss, k = B.k, N = segments.length;
   if (type === 'rift') return placeHazard('rift', !!n);
 
-  // Echos: Schatten gescheiterter Tomas, die langsamer fahren als du – zwei von drei Spuren sind dicht
+  // Echos: Stürze, die Kronos Toma andichten will; sie fahren langsamer als du – zwei von drei Spuren sind dicht
   const i0 = findSegment(k.z).index;
   const span = Math.ceil((n * 1700 + 800) / SEG_LEN);
   for (let i = 0; i < span; i++) {
@@ -179,7 +179,7 @@ function bossAttack(type, n) {
   return true;
 }
 
-/* Toma wurde getroffen: der Fadenbund franst aus */
+/* Toma wurde getroffen: der Schwurbund franst aus */
 function bossHurt(src) {
   const B = boss, p = player;
   if (!B || B.phase === 'done' || B.hurtT > 0) return;
@@ -213,7 +213,7 @@ function bossHit() {
   Sfx.zap();
   burst(pScr.x, pScr.y - 60 * pScr.k, 30, '#d0a0ff');
   if (B.hp <= 0) {
-    if (B.final) bossSay('martin', 'Nicht übel … für einen Kurier.');
+    if (B.final) bossSay('martin', 'Nicht übel … für einen aus dem anderen Team.');
     bossEnd('win');
     return;
   }
@@ -408,13 +408,13 @@ function drawBossMark(sx, fy, k) {
   ctx.restore();
 }
 
-/* Anzeige oben: Fadenbund (links), Zeitschild (Mitte), Sand (rechts) – ersetzt Platz, Runde und Fortschritt */
+/* Anzeige oben: Schwurbund (links), Zeitschild (Mitte), Sand (rechts) – ersetzt Platz, Runde und Fortschritt */
 function drawBossHUD() {
   const B = boss, p = player;
   const blink = Math.sin(gameT * 14) > 0;
 
-  // Fadenbund
-  txt('FADENBUND', 40, 38, 18, B.hurtT > 0 && blink ? '#ff7a7a' : '#bfe9ff');
+  // Schwurbund
+  txt('SCHWURBUND', 40, 38, 18, B.hurtT > 0 && blink ? '#ff7a7a' : '#bfe9ff');
   for (let i = 0; i < B.threadMax; i++) {
     const on = i < B.thread, x = 52 + i * 36, y = 70;
     ctx.fillStyle = on ? (B.thread === 1 && blink ? '#ff5a5a' : '#7dffd8') : 'rgba(8,20,60,.6)';

@@ -28,7 +28,7 @@ const BOARDS = [
     stats: [2, 1, 2, 5, 3], tough: true, pal: { board: '#6a2424', edge: '#d99a55', stripe: '#ffd23d', glow: '255,120,60' } },
   { id: 'pegasos', name: 'Pegasos', sub: 'Federleicht: zieht sofort an, und Tricks gehen ein Fünftel schneller.',
     stats: [2, 5, 4, 3, 3], trick: 0.8, pal: { board: '#ffffff', edge: '#e6b422', stripe: '#8fc0ff', glow: '255,240,190' } },
-  { id: 'sanduhr', name: 'Sanduhr', sub: 'Kronos\' eigenes Brett. In jeder Hinsicht stark.', locked: true,
+  { id: 'sanduhr', name: 'Sanduhr', sub: 'Das Brett des alten Königs. In jeder Hinsicht stark.', locked: true,
     stats: [4, 4, 4, 4, 4], pal: { board: '#221a34', edge: '#d0a0ff', stripe: '#d0a0ff', glow: '208,160,255' } },
 ];
 

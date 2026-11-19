@@ -359,7 +359,7 @@ function drawCgThread(g, cut, trio) {
     g.beginPath(); g.moveTo(-20, 300); g.bezierCurveTo(200, 250, 420, 300, 585, 335); g.quadraticCurveTo(602, 346, 596, 396); g.stroke();
     g.beginPath(); g.moveTo(1300, 320); g.bezierCurveTo(1080, 260, 880, 290, 700, 332); g.quadraticCurveTo(684, 344, 691, 404); g.stroke();
   } else {
-    // ein Faden – oder der Fadenbund: drei Fäden (Toma, Robin, Jario) in einem Knoten
+    // ein Faden – oder der Schwurbund: drei Fäden (Toma, Robin, Jario) in einem Knoten
     const knot = (col, glow, d) => {
       glowOn(g, glow, 24);
       g.strokeStyle = col;
@@ -421,7 +421,7 @@ function drawCgThread(g, cut, trio) {
   vignette(g, 0.65);
 }
 
-/* Event-Grafik: Kronos ohne Augenbinde */
+/* Event-Grafik: Kairon ohne Augenbinde – darunter der leuchtende Sand */
 function drawCgReveal(g) {
   const bgc = g.createRadialGradient(640, 300, 60, 640, 300, 800);
   bgc.addColorStop(0, '#4a1a80');
@@ -442,7 +442,7 @@ function drawCgReveal(g) {
   g.scale(8.4, 8.4);
   g.lineCap = 'round';
   g.lineJoin = 'round';
-  portraitHead(g, CAST.kronos.spec);
+  portraitHead(g, CAST.kaironR.spec);
   g.restore();
   // die gelöste Augenbinde
   g.strokeStyle = '#2a2f3a';
@@ -467,7 +467,7 @@ function drawCgReveal(g) {
   vignette(g, 0.7);
 }
 
-/* Event-Grafik: die Sanduhr – im Licht (bench = false) oder auf der Werkbank neben der gesprungenen Brille */
+/* Event-Grafik: die Sanduhr – im Licht (bench = false) oder auf der Werkbank neben Kairons Augenbinde */
 function drawCgHourglass(g, bench) {
   const bgc = g.createRadialGradient(640, 280, 40, 640, 280, 800);
   bgc.addColorStop(0, bench ? '#6a4a30' : '#5a2aa0');
@@ -513,13 +513,19 @@ function drawCgHourglass(g, bench) {
     g.fillStyle = 'rgba(0,0,0,.3)';
     ell(g, 912, 474, 96, 10);
     g.fill();
-    g.save();
-    g.translate(912, 494);
-    g.rotate(-0.08);
-    g.scale(4.2, 4.2);
     g.lineCap = 'round';
-    shades(g, true);
-    g.restore();
+    g.strokeStyle = '#2a2f3a';
+    g.lineWidth = 24;
+    g.beginPath();
+    g.moveTo(820, 488);
+    g.bezierCurveTo(876, 458, 944, 508, 1006, 478);
+    g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,.14)';
+    g.lineWidth = 2.5;
+    g.beginPath();
+    g.moveTo(824, 482);
+    g.bezierCurveTo(880, 452, 946, 502, 1004, 472);
+    g.stroke();
   }
   const R = mulberry32(21);
   g.fillStyle = 'rgba(255,240,210,.5)';
@@ -532,12 +538,19 @@ function drawCgHourglass(g, bench) {
 }
 
 const SCENES = {
+  neosky: { label: 'Neo-Skyline · Freitagnacht', make: () => composeScene({
+    track: 'sky', zone: 0, road: true, tint: 'rgba(10,12,48,.46)', props: [
+      ['tower2', 300, 384, 250], ['tower4', 965, 386, 270], ['tower1', 520, 392, 180], ['tower5', 775, 392, 200],
+      ['tower3', 120, 404, 330], ['tower1', 1160, 404, 340], ['bb2', 420, 430, 150], ['palm', 870, 436, 150],
+      ['lamp', 500, 452, 190], ['lamp', 780, 452, 190, { flip: true }], ['tower4', 30, 470, 520], ['tower2', 1250, 476, 540],
+      ['lamp', 330, 500, 330], ['lamp', 950, 500, 330, { flip: true }], ['bb3', 1090, 520, 300],
+    ] }) },
   hellas: { make: () => composeScene({
     track: 'piraeus', zone: 1, floor: 'water', horizon: 400, vig: 0.4, props: [
       ['temple', 640, 414, 150], ['ship', 770, 432, 58], ['ship', 300, 452, 112], ['statue', 1030, 476, 390],
       ['col', 96, 700, 590], ['col', 232, 520, 300], ['col', 1210, 640, 480], ['ship', 520, 612, 230, { flip: true }],
     ] }) },
-  workshop: { label: 'Piräus · Kairons Werkstatt', make: () => mk(W, H, g => drawWorkshop(g, false)) },
+  workshop: { label: 'Piräus · Die erloschene Schmiede', make: () => mk(W, H, g => drawWorkshop(g, false)) },
   workshop_end: { label: 'Piräus · Kairons alte Werkstatt', make: () => mk(W, H, g => drawWorkshop(g, true)) },
   piraeus: { label: 'Hafen von Piräus · Startlinie', make: () => composeScene({
     track: 'piraeus', zone: 0, road: true, props: [
@@ -572,7 +585,7 @@ const SCENES = {
       ['dcol', 960, 454, 190], ['charon', 660, 474, 150], ['dead', 80, 474, 380], ['brazierG', 380, 484, 200],
       ['dead', 1210, 484, 420, { flip: true }], ['wisp', 480, 504, 110], ['wisp', 300, 524, 90], ['wisp', 850, 524, 120],
     ] }) },
-  olymp: { label: 'Olymp · Halle der Götter', make: () => composeScene({
+  olymp: { label: 'Olymp · Thron des Königs', make: () => composeScene({
     track: 'olymp', zone: 1, floor: 'tiles', line: 'rgba(160,110,20,.14)', props: [
       ['puff', 560, 374, 34], ['puff', 760, 376, 30], ['puff', 1180, 398, 64], ['puff', 100, 402, 70],
       ['gcol', 450, 422, 200], ['gcol', 830, 422, 200], ['gtemple', 640, 428, 350], ['gstatue', 240, 444, 300], ['gstatue', 1040, 444, 300],
@@ -617,12 +630,14 @@ const BUST = {
   jario:   { who: 'jario', slot: 'm2', spec: () => CAST.jario.spec, outfit: { kind: 'hoodie', body: '#20263f', arm: '#20263f', hood: '#151a2c', zip: '#f2f5f9', plain: true, w: 0.93 } },
   martin:  { who: 'martin', spec: () => CAST.martin.spec, outfit: { kind: 'halfzip', body: '#bfc2c6', arm: '#bfc2c6', collar2: '#adb0b5', zip: '#8b8e94', tee: '#f6f7f9', w: 1.04 } },
   mila:    { who: 'mila', size: 0.78, spec: () => CAST.mila.spec, outfit: { kind: 'chiton', body: '#ff8fc2', trim: '#ffd23d' } },
-  kairon:  { who: 'kairon', size: 0.98, spec: () => CAST.kairon.spec, outfit: { kind: 'apron', body: '#6a5038', apron: '#3a2a1e', bracer: '#3a2a1e' } },
-  kronosB: { who: 'kairon', size: 1.04, spec: () => CAST.kronosB.spec, outfit: { kind: 'robe', body: '#2a2038', trim: '#d0a0ff', cape: '#1a1228', glow: '208,160,255' } },
-  kronos:  { who: 'kairon', size: 1.04, spec: () => CAST.kronos.spec, outfit: { kind: 'robe', body: '#2a2038', trim: '#d0a0ff', cape: '#1a1228', tee: true, glow: '208,160,255' } },
+  kairon:  { who: 'kairon', size: 0.98, ghost: true, spec: () => CAST.kairon.spec, outfit: { kind: 'apron', body: '#6a5038', apron: '#3a2a1e', bracer: '#3a2a1e' } },
+  kaironR: { who: 'kairon', size: 1.02, ghost: true, spec: () => CAST.kaironR.spec, outfit: { kind: 'armor', body: '#2a2038', plate: '#6a5a8c', plate2: '#2a2038', cape: '#1a1228', bracer: '#6a5a8c', lines: '#e8c877', arm: '#2a2038', glow: '232,200,119' } },
+  kronos:  { who: 'kronos', size: 1.1, spec: () => CAST.kronos.spec, outfit: { kind: 'robe', body: '#2a2038', trim: '#e8c877', cape: '#1a1228', collar: '#1a1228', glow: '208,160,255' } },
+  xanthe:  { who: 'xanthe', size: 0.97, spec: () => CAST.xanthe.spec, outfit: { kind: 'chiton', body: '#e6b422', trim: '#fff6d6' } },
+  theron:  { who: 'theron', size: 1.08, spec: () => CAST.theron.spec, outfit: { kind: 'armor', body: '#236238', plate: '#b8873f', plate2: '#7a5626', cape: '#3f9a5a', bracer: '#b8873f', w: 1.1 } },
   kassia:  { who: 'kassia', spec: () => CAST.kassia.spec, outfit: { kind: 'armor', body: '#8a1f1f', plate: '#d9a04e', plate2: '#a8742c', cape: '#a3202a', bracer: '#d9a04e' } },
-  kassiaG: { who: 'kassiaG', ghost: true, spec: () => CAST.kassiaG.spec, outfit: { kind: 'armor', body: '#235a50', plate: '#6fbfae', plate2: '#3f8f80', cape: '#1a4a40', bracer: '#6fbfae', glow: '125,255,216' } },
   phaidon: { who: 'phaidon', size: 0.9, spec: () => CAST.phaidon.spec, outfit: { kind: 'chiton', body: '#3f7ad8', trim: '#f2f5f9' } },
+  theronG: { who: 'theronG', size: 1.08, ghost: true, spec: () => CAST.theronG.spec, outfit: { kind: 'armor', body: '#235a50', plate: '#6fbfae', plate2: '#3f8f80', cape: '#1a4a40', bracer: '#6fbfae', glow: '125,255,216', w: 1.1 } },
   pythia:  { who: 'pythia', custom: true, flicker: true },
   ares:    { who: 'ares', size: 1.12, spec: () => CAST.ares.spec, outfit: { kind: 'armor', body: '#3a0a0a', plate: '#3a3a42', plate2: '#17171c', cape: '#8a1414', bracer: '#3a3a42', lines: '#ff2a2a', arm: '#2a2022', glow: '255,60,40' } },
   hermes:  { who: 'hermes', spec: () => CAST.hermes.spec, outfit: { kind: 'chiton', body: '#f5f0dc', trim: '#ffd23d', glow: '255,220,90' } },

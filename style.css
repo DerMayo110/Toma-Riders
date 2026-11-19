@@ -453,7 +453,11 @@ kbd {
   line-height: 1;
   color: #fff3d0;
   text-shadow: calc(var(--u) * 5) calc(var(--u) * 5) 0 #0b1b4d, 0 0 calc(var(--u) * 40) rgba(57, 224, 255, .7);
+  text-align: center;
+  white-space: nowrap;
 }
-.vn-bigsub { font-size: calc(var(--u) * 26); font-weight: 700; letter-spacing: calc(var(--u) * 6); text-transform: uppercase; color: #7dffd8; text-shadow: 0 calc(var(--u) * 2) calc(var(--u) * 8) rgba(4, 8, 24, .9); }
+/* lange Namen (Namenskarten der Gegner) kleiner setzen, damit sie in die Breite passen */
+.vn-big.long { font-size: calc(var(--u) * 82); letter-spacing: calc(var(--u) * 8); }
+.vn-bigsub { font-size: calc(var(--u) * 26); font-weight: 700; letter-spacing: calc(var(--u) * 6); line-height: 1.5; text-align: center; padding: 0 calc(var(--u) * 90); text-transform: uppercase; color: #7dffd8; text-shadow: 0 calc(var(--u) * 2) calc(var(--u) * 8) rgba(4, 8, 24, .9); }
 
 #menu .big { font-size: calc(var(--u) * 24); padding: calc(var(--u) * 12) calc(var(--u) * 34); white-space: nowrap; }

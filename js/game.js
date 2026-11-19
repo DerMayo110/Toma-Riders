@@ -748,7 +748,7 @@ function updateAI(r, dt) {
   top *= 1 + clamp((player.dist - r.dist) / 250000, -0.06, 0.05);       // Gummiband: vorn etwas langsamer, hinten etwas schneller
   top *= 1 - Math.abs(seg.curve) * 0.006;
   if (r.boostT > 0) { r.boostT -= dt; top *= 1.28; }
-  // Fadenbund: Robin und Jario halten Formation knapp vor Toma, egal wie schnell er gerade ist
+  // Schwurbund: Robin und Jario halten Formation knapp vor Toma, egal wie schnell er gerade ist
   const escort = r.ally && state === 'race' && !player.finished && !r.finished;
   if (escort) {
     top = clamp(player.speed + (player.dist + (r.gapNow || r.ally) - r.dist) * 1.6, MAX_SPEED * 0.45, BOOST_SPEED * 1.1);
@@ -866,7 +866,7 @@ function rank() {
     return b.dist - a.dist;
   });
   let place = 0;
-  for (const r of order) r.pos = r.ally ? 0 : ++place;      // der Fadenbund zählt als ein Fahrer: Robin und Jario laufen außer Wertung
+  for (const r of order) r.pos = r.ally ? 0 : ++place;      // der Schwurbund zählt als ein Fahrer: Robin und Jario laufen außer Wertung
 }
 
 /* ================= Zieleinlauf, Ergebnis, Bestzeiten ================= */
@@ -925,7 +925,7 @@ function showResults() {
     line.textContent = '';
     line.append('Zeit ');
     const b3 = document.createElement('b'); b3.textContent = fmtTime(raceTime); line.append(b3);
-    line.append('  ·  Fadenbund hält: ' + boss.thread + '/' + boss.threadMax);
+    line.append('  ·  Schwurbund hält: ' + boss.thread + '/' + boss.threadMax);
   }
   sub.append(line);
   if (newRecord && !story) {
@@ -953,7 +953,7 @@ function showResults() {
     const p = document.createElement('span'); p.className = 'p'; p.textContent = '★';
     const d = document.createElement('span'); d.className = 'd'; d.style.background = r.dot;
     const n = document.createElement('span'); n.textContent = r.name;
-    const t = document.createElement('span'); t.className = 't'; t.textContent = 'Fadenbund';
+    const t = document.createElement('span'); t.className = 't'; t.textContent = 'Schwurbund';
     row.append(p, d, n, t);
     table.append(row);
   }
@@ -964,8 +964,8 @@ function showResults() {
 
 /* ================= Menüs ================= */
 /* Martin Swagger kommentiert, wenn er Toma überholt oder überholt wird */
-const RIVAL_UP = ['»AUS DEM WEG, KURIER!«', '»STIL SCHLÄGT FLEISS, LIOUMBA.«', '»MAN SIEHT SICH – VON HINTEN.«'];
-const RIVAL_DOWN = ['»DAS WAR WINDSCHATTEN!«', '»GENIESS ES. DAUERT NICHT LANG.«', '»NICHT ÜBEL … FÜR EINEN KURIER.«'];
+const RIVAL_UP = ['»AUS DEM WEG, LIOUMBA!«', '»STIL SCHLÄGT FLEISS, KOLLEGE.«', '»MAN SIEHT SICH – VON HINTEN.«'];
+const RIVAL_DOWN = ['»DAS WAR WINDSCHATTEN!«', '»GENIESS ES. DAUERT NICHT LANG.«', '»NICHT ÜBEL … FÜR DEIN TEAM.«'];
 function rivalBanter(dt) {
   const p = player;
   if (p.finished || rival.finished) return;
@@ -983,10 +983,10 @@ function refreshMenu() {
   const st = Story.status();
   $('storyBtn').textContent = st.finished ? 'Story nochmal' : st.ch > 0 ? 'Story fortsetzen' : 'Story starten';
   $('storyLine').textContent = st.finished
-    ? 'Agon der Fäden – abgeschlossen  ·  Durchtrennte Fäden: ' + st.deaths
+    ? 'Ticket von K. – gelöst  ·  Durchtrennte Fäden: ' + st.deaths
     : st.ch > 0
-      ? 'Agon der Fäden – Kapitel ' + (st.ch + 1) + '/' + st.total + ': ' + st.title
-      : 'Agon der Fäden – Toma, Robin und Jario gegen die Götter von Hellas. Verlierst du, schneiden die Moiren.';
+      ? 'Ticket von K. – Kapitel ' + (st.ch + 1) + '/' + st.total + ': ' + st.title
+      : 'Ticket von K. – Drei Entwickler, ein uraltes Ticket und eine Sagenwelt voller Götter-Ritter. Verlierst du, schneiden die Moiren.';
   $('storyResetBtn').classList.toggle('hidden', st.ch === 0 || st.finished);
 }
 
