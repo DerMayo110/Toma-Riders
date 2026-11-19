@@ -4,7 +4,8 @@
    Die Spiellogik bleibt, wie sie ist: Jeder Fahrer hat eine Streckenposition (z), eine Querlage (x) und eine Höhe (h).
    Hier wird die Strecke zu einer Raumkurve mit echten Kurven, Hügeln, Querneigung und Loopings; Gelände, Fahrbahn,
    Kulissen und Fahrer werden daran entlang platziert. Kulissen und Fahrer sind Bildtafeln (Billboards) aus den
-   vorhandenen Zeichnungen. Fehlt WebGL2, bleibt es bei der klassischen 2D-Darstellung. */
+   vorhandenen Zeichnungen. HUD, Namensschilder und Effekte zeichnet game.js als 2D-Bild darüber.
+   Ohne WebGL2 gibt es kein Bild – game.js zeigt dann einen Hinweis. */
 
 const W3 = (() => {
   const CURVE_K = 0.0025;        // Richtungsänderung je Segment und Kurvenwert
@@ -404,7 +405,7 @@ void main() {
     baseY[total + 1] = baseY[total];
     skirtY[total + 1] = skirtY[total];
 
-    /* Bezugshöhe für die Kamera: die Fahrbahn ohne Schanzen und Schluchten (siehe refYAt in track.js);
+    /* Bezugshöhe für die Kamera: die Fahrbahn ohne Schanzen und Schluchten (berechnet in loadTrack, track.js);
        im Looping gilt die echte Ringbahn. */
     const ref = new Float32Array(total + 2);
     for (let i = 0; i <= total + 1; i++) {
@@ -884,10 +885,11 @@ void main() {
     return true;
   }
 
-  let FRONT = 1;                 // Vorzeichen für die Erkennung der Fahrbahn-Unterseite
+  const FRONT = 1;               // Vorzeichen für die Erkennung der Fahrbahn-Unterseite
   let canvas = null;             // die 2D-Leinwand gibt die Größe vor
 
-  function init(glCanvas, sizeCanvas) {
+  /* onLost: wird gerufen, wenn der Browser die 3D-Grafik mitten im Betrieb entzieht */
+  function init(glCanvas, sizeCanvas, onLost) {
     try {
       cv = glCanvas;
       canvas = sizeCanvas;
@@ -918,7 +920,11 @@ void main() {
       atlasCv.height = CELL_H * 4;
       atlasCtx = atlasCv.getContext('2d');
       atlasTex = texFrom(atlasCv, { mip: false });
-      cv.addEventListener('webglcontextlost', e => { e.preventDefault(); ready = false; });
+      cv.addEventListener('webglcontextlost', e => {
+        e.preventDefault();
+        ready = false;
+        if (onLost) onLost();
+      });
       ready = true;
     } catch (err) {
       console.warn('3D-Darstellung nicht verfügbar:', err.message);
@@ -930,9 +936,7 @@ void main() {
   return {
     init, build, tick, draw, project,
     get ready() { return ready && !!T; },
-    get available() { return ready; },
     info: () => T,
     get cam() { return cam3; },
-    setFront(v) { FRONT = v; },
   };
 })();

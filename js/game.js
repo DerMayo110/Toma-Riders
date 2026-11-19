@@ -25,11 +25,9 @@ const DRIFT_BOOST = [0, 0.55, 0.95, 1.45];
 const DRIFT_GAIN = [0, 1, 3, 6];
 const DRIFT_COL = ['#dfe9f5', '#39e0ff', '#ffb13c', '#ff5fd0'];
 const DRIFT_MSG = ['', 'DRIFT-TURBO!', 'SUPER-TURBO!', 'ULTRA-TURBO!'];
-const ROLL_MAX = 0.075;        // stärkste Schräglage der Kamera (Bogenmaß)
 
 /* ================= Zustand ================= */
 let renderScale = 1;
-let gfx3d = false;             // echte 3D-Darstellung (WebGL) statt der klassischen 2D-Zeichnung
 let focal = BASE_FOCAL;
 let state = 'menu';            // menu (Demo im Hintergrund) | countdown | race | finished
 let mode = 'free';             // free | story
@@ -50,19 +48,10 @@ let shake = 0, boostVis = 0, flash = 0;
 let particles = [], popups = [];
 let HUD_PORTRAIT = null;
 let warnT = 0, warnText = '', warnCol = '#ffe14d', hairpinT = 0;
-let hazeGrad = null;
-const cam = { x: 0, y: CAM_H, z: 0 };
-/* Blick fürs Zeichnen: Lage in der flachen Welt, Neigung (pitch), Schräglage (roll) und – falls die Kamera gerade
-   durch ein Looping fährt – der Ring (loop), der Winkel darin (th) und welche Teile der flachen Welt zu sehen sind. */
-const view = { x: 0, y: CAM_H, z: 0, pitch: 0, cos: 1, sin: 0, roll: 0, loop: null, th: 0, x0: 0, n0: 0, flat: true, ghost: false, fade: 0 };
-let airPitch = 0, loopVis = 0, trickVis = 0;
-const bgOff = { clouds: 0, far: 0 };
+/* Kamera: Lage entlang der Strecke (z) und seitlicher Versatz (x). Höhe und Blickrichtung führt world3d.js. */
+const cam = { x: 0, z: 0 };
+let loopVis = 0, trickVis = 0;
 const pScr = { x: CX, y: 620, k: 1.7 };      // Bildschirmposition des Spielers (für Partikel)
-const fogTable = new Float32Array(DRAW_DIST);
-for (let n = 0; n < DRAW_DIST; n++) {
-  const d = n / DRAW_DIST;
-  fogTable[n] = 1 - Math.exp(-d * d * 3.6);
-}
 
 /* ================= Oberfläche ================= */
 function showUI(name) {
@@ -71,13 +60,28 @@ function showUI(name) {
   $('pause').classList.add('hidden');
 }
 
+/* Die Rennwelt braucht WebGL2. Fehlt es (lost = false) oder entzieht der Browser die Grafik mitten im Spiel
+   (lost = true), gibt es statt eines eingefrorenen Bildes einen Hinweis. */
+function showNoGl(lost) {
+  paused = true;
+  ui = 'nogl';
+  Sfx.musicStop();
+  for (const o of OVERLAYS) $(o).classList.add('hidden');
+  $('pause').classList.add('hidden');
+  $('noglTitle').textContent = lost ? 'GRAFIK UNTERBROCHEN' : 'KEINE 3D-GRAFIK';
+  $('noglText').textContent = lost
+    ? 'Der Browser hat die 3D-Grafik unterbrochen – das passiert zum Beispiel nach dem Standby oder einem Neustart des Grafiktreibers. Lade die Seite neu, um weiterzufahren. Dein gespeicherter Story-Fortschritt bleibt erhalten.'
+    : 'Dieser Browser oder dieses Gerät stellt kein WebGL2 bereit – das braucht Toma Riders für die Rennwelt. Aktuelle Versionen von Chrome, Edge, Firefox und Safari können es. Hilft ein Update nicht, schalte in den Browser-Einstellungen die Hardwarebeschleunigung ein.';
+  $('nogl').classList.remove('hidden');
+}
+
 /* ================= Rennen aufsetzen ================= */
 function makeRacer(def, x, dist, isPlayer) {
   return {
     name: def.name, pal: def.pal, skill: def.skill || 1, god: def.god || null, isPlayer,
     ally: def.ally || 0, lane: def.lane || 0, gapNow: 0, big: 0, shot: false, fade: 1, rival: !!def.rival,
     cr: 0.3, sq: 0, sqV: 0, armUp: 0, bo: 0,          // Haltung fürs Zeichnen: Hocke, Federung, Arme hoch, Boost-Haltung
-    x, dist, z: mod(dist, TRACK_LEN), rel: 0,
+    x, dist, z: mod(dist, TRACK_LEN),
     pDist: dist, pX: x, pH: 0, pY: 0,                 // Stand einen Schritt zuvor (für Zwischenbilder)
     speed: 0, steerV: 0, lean: 0, targetX: x, laneT: 1 + Math.random() * 3,
     air: false, airT: 0, airEta: 0, yAbs: 0, vy: 0, h: 0, trick: null, tricks: 0, trickQ: null, trickQT: 0,
@@ -108,8 +112,7 @@ function resetRace() {
   rival = racers.find(r => r.rival) || null; rivalAhead = null; rivalT = 0;
   cam.x = player.x * ROAD_W * 0.72;
   cam.z = mod(player.dist - CAM_D, TRACK_LEN);
-  cam.y = roadYAt(player.z) + CAM_H;
-  airPitch = 0; loopVis = 0; view.roll = 0;
+  loopVis = 0;
   bossReset();
   updateCamera(0);
   keepPrev();
@@ -121,8 +124,6 @@ function setupRace(cfg) {
   if (!track || track.id !== cfg.track) {
     loadTrack(cfg.track);
     theme = getTheme(track.theme);
-    FOG = theme.fog;
-    hazeGrad = null;
     W3.build();
   }
   bossOn = !!cfg.boss;
@@ -1056,76 +1057,19 @@ function update(dt) {
   }
 
   updateCamera(dt);
-  if (gfx3d) W3.tick(dt);
+  W3.tick(dt);
   updateFx(dt);
 }
 
 function updateCamera(dt) {
-  const p = player, V = view;
+  const p = player;
   cam.z = mod(p.dist - CAM_D, TRACK_LEN);
   cam.x = damp(cam.x, p.x * ROAD_W * 0.72, 9, dt);
-  const seg = findSegment(p.z), sp = p.speed / MAX_SPEED;
-  const L = findSegment(cam.z).loop;
-  if (L) airPitch = 0;                              // im Ring ergeben sich Höhe und Neigung aus der Bahn (placeView)
-  else {
-    // Höhe: folgt dem Fahrer, im Sprung und auf Schanzen aber nur zu gut drei Vierteln (gemessen an der Bezugshöhe,
-    // damit die Kamera an Schanzen- und Abbruchkanten nicht absackt)
-    const target = Math.max(p.yAbs + CAM_H - 0.22 * Math.max(0, p.yAbs - refYAt(p.z)), roadYAt(cam.z) + 420);
-    cam.y = damp(cam.y, target, 14, dt);
-    // Der Blick folgt Gefälle und Steigung; hoch in der Luft kippt die Kamera Richtung Landezone
-    const slope = (roadYAt(p.z + 700) - roadYAt(cam.z)) / (CAM_D + 700);
-    const want = (seg.loop || seg.gap ? 0 : clamp(slope * 0.5, -0.22, 0.2)) - (p.air ? clamp((p.h - 250) / 6500, 0, 0.3) : 0);
-    airPitch = damp(airPitch, want, 3.5, dt);
-  }
-  placeView();
-
+  // Brennweite: weiter beim Boost und im Looping, enger bei Tricks
   boostVis = damp(boostVis, p.boostT > 0 ? 1 : 0, 5, dt);
-  loopVis = damp(loopVis, L ? 1 : 0, 4, dt);
+  loopVis = damp(loopVis, findSegment(cam.z).loop ? 1 : 0, 4, dt);
   trickVis = damp(trickVis, p.air && p.trick && p.trick.t > 0 && !p.auto ? 1 : 0, 7, dt);
   focal = BASE_FOCAL * (1 - 0.13 * boostVis - 0.06 * loopVis + 0.09 * trickVis);
-  // Die Kamera legt sich in Kurven und beim Driften mit in die Schräglage
-  const roll = L ? 0 : -clamp(seg.curve * sp * sp * 0.0075 + p.steerV / STEER * 0.022 + p.driftVis * 0.03, -ROLL_MAX, ROLL_MAX);
-  V.roll = damp(V.roll, roll, 4, dt);
-  bgOff.far += seg.curve * sp * dt * 0.012;
-  bgOff.clouds += seg.curve * sp * dt * 0.006 + dt * 0.0015;
-}
-
-/* Blick fürs Zeichnen aus dem Kamerastand ableiten (cam.x / cam.y / cam.z, airPitch) – auch für Zwischenbilder */
-function placeView() {
-  const V = view, L = findSegment(cam.z).loop;
-  V.loop = L; V.ghost = false; V.x0 = 0; V.n0 = 0; V.flat = true; V.fade = 0; V.x = cam.x;
-  if (L) {
-    // Die Kamera fährt mit durch den Ring: Lage und Blickrichtung folgen der Bahn.
-    // Die flache Welt ist nur am Anfang (Blick nach vorn) und am Ende (Blick nach unten) zu sehen.
-    const s = mod(cam.z - L.z0, TRACK_LEN), th = s / L.R, k = (L.R - CAM_H) * Math.sin(th);
-    V.th = th;
-    V.pitch = th > Math.PI ? th - TAU : th;
-    V.y = cam.y = L.y0 + L.R * (1 - Math.cos(th)) + CAM_H * Math.cos(th);
-    V.x0 = L.S * (1 - s / L.len);
-    if (th < Math.PI) {
-      V.z = L.z0 + k;
-      V.flat = th < 0.62;
-    } else {
-      V.z = L.z0 + L.len + k;
-      V.ghost = true;
-      V.n0 = -26;
-      V.flat = th > 4.75;
-      V.fade = clamp(1 - (th - 4.75) / 0.3, 0, 1);
-    }
-    const c = L.cam;
-    c.x = L.S * s / L.len + cam.x;
-    c.y = V.y - L.y0;
-    c.z = k;
-    c.pitch = th;
-  } else {
-    V.z = cam.z;
-    V.y = cam.y;
-    V.pitch = airPitch;
-    V.th = 0;
-  }
-  V.cos = Math.cos(V.pitch);
-  V.sin = Math.sin(V.pitch);
-  if (L) { L.cam.cos = V.cos; L.cam.sin = V.sin; }
 }
 
 /* ================= Zwischenbilder ================= */
@@ -1133,8 +1077,8 @@ function placeView() {
    Bewegung dabei gleichmäßig bleibt, zeigt jedes Bild einen Stand zwischen dem vorigen und dem aktuellen Schritt
    (a = Anteil des aktuellen). Fahrer und Kamera werden dafür kurz auf diesen Zwischenstand gesetzt und nach dem
    Zeichnen wieder zurück – die Simulation selbst merkt davon nichts. */
-const prevCam = { x: 0, y: CAM_H, roll: 0, pitch: 0, focal: BASE_FOCAL, far: 0, clouds: 0 };
-const trueCam = { x: 0, y: 0, z: 0, roll: 0, pitch: 0, focal: 0, far: 0, clouds: 0 };
+const prevCam = { x: 0, focal: BASE_FOCAL };
+const trueCam = { x: 0, z: 0, focal: 0 };
 let blended = [];
 
 function movers() { return boss && boss.shots.length ? racers.concat(boss.shots) : racers; }
@@ -1142,8 +1086,8 @@ function movers() { return boss && boss.shots.length ? racers.concat(boss.shots)
 /* Stand vor dem nächsten Schritt merken */
 function keepPrev() {
   for (const r of movers()) { r.pDist = r.dist; r.pX = r.x; r.pH = r.h; r.pY = r.yAbs; }
-  prevCam.x = cam.x; prevCam.y = cam.y; prevCam.roll = view.roll; prevCam.pitch = airPitch; prevCam.focal = focal;
-  prevCam.far = bgOff.far; prevCam.clouds = bgOff.clouds;
+  prevCam.x = cam.x;
+  prevCam.focal = focal;
 }
 
 function blendIn(a) {
@@ -1159,26 +1103,15 @@ function blendIn(a) {
       r.h = r.air || r.pH > 0 ? Math.max(0, lerp(r.pY, r.yAbs, a) - roadYAt(r.z)) : 0;
     }
   }
-  const t = trueCam, q = prevCam;
-  t.x = cam.x; t.y = cam.y; t.z = cam.z; t.roll = view.roll; t.pitch = airPitch; t.focal = focal;
-  t.far = bgOff.far; t.clouds = bgOff.clouds;
+  trueCam.x = cam.x; trueCam.z = cam.z; trueCam.focal = focal;
   cam.z = mod(player.dist - CAM_D, TRACK_LEN);
-  cam.x = lerp(q.x, cam.x, a);
-  cam.y = lerp(q.y, cam.y, a);
-  view.roll = lerp(q.roll, view.roll, a);
-  airPitch = lerp(q.pitch, airPitch, a);
-  focal = lerp(q.focal, focal, a);
-  bgOff.far = lerp(q.far, bgOff.far, a);
-  bgOff.clouds = lerp(q.clouds, bgOff.clouds, a);
-  placeView();
+  cam.x = lerp(prevCam.x, cam.x, a);
+  focal = lerp(prevCam.focal, focal, a);
 }
 
 function blendOut() {
   for (const r of blended) { r.dist = r.tDist; r.z = r.tZ; r.x = r.tX; r.h = r.tH; }
-  const t = trueCam;
-  cam.x = t.x; cam.y = t.y; cam.z = t.z; view.roll = t.roll; airPitch = t.pitch; focal = t.focal;
-  bgOff.far = t.far; bgOff.clouds = t.clouds;
-  placeView();
+  cam.x = trueCam.x; cam.z = trueCam.z; focal = trueCam.focal;
 }
 
 function updateFx(dt) {
@@ -1230,7 +1163,7 @@ function updateFx(dt) {
   }
 }
 
-/* ================= Zeichnen: Welt ================= */
+/* ================= Zeichnen: Helfer ================= */
 function quad(x1, y1, x2, y2, x3, y3, x4, y4) {
   ctx.beginPath();
   ctx.moveTo(x1, y1);
@@ -1239,259 +1172,6 @@ function quad(x1, y1, x2, y2, x3, y3, x4, y4) {
   ctx.lineTo(x4, y4);
   ctx.closePath();
   ctx.fill();
-}
-
-/* Weltpunkt -> Bildschirm. Die Kamera kann nach oben/unten geneigt sein (view.pitch). */
-function project(p, cx, cy, cz) {
-  const c = p.camera, s = p.screen, V = view;
-  const dy = p.world.y - cy, dz = p.world.z - cz;
-  c.x = -cx;
-  c.y = dy * V.cos - dz * V.sin;
-  c.z = dz * V.cos + dy * V.sin;
-  s.scale = focal / c.z;
-  s.x = Math.round(CX + s.scale * c.x);
-  s.y = Math.round(CY - s.scale * c.y);
-  s.w = Math.round(s.scale * ROAD_W);
-}
-
-function layer(img, off, y) {
-  const w = img.width;
-  let x = -mod(off * w, w) - 40;
-  while (x > -MG) x -= w;
-  for (; x < W + MG; x += w) ctx.drawImage(img, Math.round(x), y);
-}
-
-/* Himmel und Horizont wandern mit der Kameraneigung; kopfüber (oben im Looping) steht alles auf dem Kopf */
-function drawBackground() {
-  const V = view;
-  if (!hazeGrad) {
-    hazeGrad = ctx.createLinearGradient(0, CY - 90, 0, CY + 8);
-    hazeGrad.addColorStop(0, 'rgba(' + theme.fogRgb + ',0)');
-    hazeGrad.addColorStop(1, 'rgba(' + theme.fogRgb + ',1)');
-  }
-  const hy = Math.abs(V.cos) < 0.03 ? (V.sin * V.cos >= 0 ? 3200 : -3200) : clamp(focal * V.sin / V.cos, -3200, 3200);
-  ctx.save();
-  if (V.cos < 0) {
-    ctx.translate(CX, CY + hy);
-    ctx.rotate(Math.PI);
-    ctx.translate(-CX, -CY);
-  } else ctx.translate(0, Math.round(hy));
-
-  ctx.fillStyle = theme.colors[0];
-  ctx.fillRect(-MG * 3, -3700, W + MG * 6, 3702 - MG);
-  ctx.drawImage(theme.sky, -MG, -MG, W + 2 * MG, CY + 10 + MG);      // gestreckt als Randfüllung …
-  ctx.drawImage(theme.sky, -40, -40);                                // … darüber das Original
-  ctx.fillStyle = V.loop ? V.loop.ground : FOG;
-  ctx.fillRect(-MG * 3, CY + 8, W + MG * 6, 3900);
-  if (theme.clouds) layer(theme.clouds, bgOff.clouds, 6);
-  layer(theme.far, bgOff.far, CY + 8 - theme.far.height);
-  ctx.fillStyle = hazeGrad;
-  ctx.fillRect(-MG * 3, CY - 90, W + MG * 6, 100);
-  if (V.loop) {                                                      // Dunst über dem Boden
-    const g = ctx.createLinearGradient(0, CY + 8, 0, CY + 200);
-    g.addColorStop(0, 'rgba(' + theme.fogRgb + ',1)');
-    g.addColorStop(1, 'rgba(' + theme.fogRgb + ',0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(-MG * 3, CY + 8, W + MG * 6, 194);
-  }
-  ctx.restore();
-}
-
-/* clipY: Unterkante des sichtbaren Teils (alles darunter verdeckt eine Kuppe davor) · bare: nur Boden */
-function drawSegment(s, clipY, bare) {
-  const A = s.p1.screen, b = s.p2.screen, c = s.col;
-  const y2 = b.y;
-  let y1 = A.y, ax = A.x, aw = A.w;
-  if (y1 > clipY) {
-    const t = (y1 - clipY) / (y1 - y2);
-    ax = lerp(ax, b.x, t);
-    aw = lerp(aw, b.w, t);
-    y1 = clipY;
-  }
-
-  ctx.fillStyle = c.ground;
-  ctx.fillRect(-MG * 2, y2, W + MG * 4, y1 - y2);
-
-  if (s.gap || bare) {
-    if (s.wall) {                                    // helle Kante: hier beginnt die Landezone
-      ctx.fillStyle = c.rumble;
-      ctx.fillRect(b.x - b.w * 1.075, y2, b.w * 2.15, Math.max(2, (y1 - y2) * 0.07));
-    }
-  } else {
-    const yr = y1 + 1;                               // 1 px Überlappung: keine Fugen bei geneigter Kamera
-    const r1 = aw * 0.075, r2 = b.w * 0.075;
-    ctx.fillStyle = c.rumble;
-    quad(ax - aw - r1, yr, ax - aw, yr, b.x - b.w, y2, b.x - b.w - r2, y2);
-    quad(ax + aw + r1, yr, ax + aw, yr, b.x + b.w, y2, b.x + b.w + r2, y2);
-
-    ctx.fillStyle = c.road;
-    quad(ax - aw, yr, ax + aw, yr, b.x + b.w, y2, b.x - b.w, y2);
-
-    if (s.ramp) {
-      ctx.fillStyle = s.launch ? '#ffffff' : s.index % 2 ? '#ffd23d' : '#22262f';
-      quad(ax - aw, yr, ax + aw, yr, b.x + b.w, y2, b.x - b.w, y2);
-    } else if (!s.dark) {
-      const l1 = aw * 0.012, l2 = b.w * 0.012;
-      ctx.fillStyle = 'rgba(240,246,252,.85)';
-      for (let k = -1; k <= 1; k += 2) {
-        const f = k / 3;
-        quad(ax + aw * f - l1, y1, ax + aw * f + l1, y1, b.x + b.w * f + l2, y2, b.x + b.w * f - l2, y2);
-      }
-    }
-
-    if (s.index < 2) {
-      const n = 16;
-      for (let i = 0; i < n; i++) {
-        const f1 = -1 + 2 * i / n, f2 = -1 + 2 * (i + 1) / n;
-        ctx.fillStyle = (i + s.index) % 2 ? '#f5f7fa' : '#14161d';
-        quad(ax + aw * f1, y1, ax + aw * f2, y1, b.x + b.w * f2, y2, b.x + b.w * f1, y2);
-      }
-    }
-
-    if (s.pad) {
-      const pd = s.pad, ph = mod(s.index - Math.floor(gameT * 14), 3);
-      ctx.fillStyle = ph === 0 ? '#eaffff' : ph === 1 ? '#19e3ff' : '#0aa8e0';
-      quad(ax + aw * (pd.x - pd.w), yr, ax + aw * (pd.x + pd.w), yr, b.x + b.w * (pd.x + pd.w), y2, b.x + b.w * (pd.x - pd.w), y2);
-    }
-
-    const hz = s.hz;
-    if (hz && hz.until > gameT) {
-      const pulse = 0.66 + 0.28 * Math.sin(gameT * 14);
-      const e1 = Math.max(1, aw * 0.014), e2 = Math.max(1, b.w * 0.014);
-      for (const hx of hz.xs) {
-        const l1 = ax + aw * (hx - hz.w), r1x = ax + aw * (hx + hz.w);
-        const l2 = b.x + b.w * (hx - hz.w), r2x = b.x + b.w * (hx + hz.w);
-        ctx.globalAlpha = pulse;
-        ctx.fillStyle = HZ[hz.type].col;
-        quad(l1, y1, r1x, y1, r2x, y2, l2, y2);
-        ctx.globalAlpha = 0.95;
-        ctx.fillStyle = '#ffffff';
-        quad(l1, y1, l1 + e1, y1, l2 + e2, y2, l2, y2);
-        quad(r1x - e1, y1, r1x, y1, r2x, y2, r2x - e2, y2);
-      }
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  if (s.fog > 0.012) {
-    ctx.globalAlpha = s.fog;
-    ctx.fillStyle = FOG;
-    ctx.fillRect(-MG * 2, y2, W + MG * 4, y1 - y2);
-    ctx.globalAlpha = 1;
-  }
-}
-
-/* Halbtransparente Energie-Leitplanken */
-function drawRails(s) {
-  const a = s.p1.screen, b = s.p2.screen;
-  const h1 = RAIL_H * a.scale, h2 = RAIL_H * b.scale;
-  if (h1 < 0.7) return;
-  const o1 = a.w * 1.075, o2 = b.w * 1.075;
-  const vis = 1 - s.fog;
-  ctx.fillStyle = s.col.rail;
-  ctx.globalAlpha = (s.dark ? 0.28 : 0.42) * vis;
-  quad(a.x - o1, a.y, b.x - o2, b.y, b.x - o2, b.y - h2, a.x - o1, a.y - h1);
-  quad(a.x + o1, a.y, b.x + o2, b.y, b.x + o2, b.y - h2, a.x + o1, a.y - h1);
-  ctx.globalAlpha = 0.9 * vis;
-  ctx.fillStyle = '#ffffff';
-  const t1 = Math.max(1, h1 * 0.09), t2 = Math.max(1, h2 * 0.09);
-  quad(a.x - o1, a.y - h1, b.x - o2, b.y - h2, b.x - o2, b.y - h2 + t2, a.x - o1, a.y - h1 + t1);
-  quad(a.x + o1, a.y - h1, b.x + o2, b.y - h2, b.x + o2, b.y - h2 + t2, a.x + o1, a.y - h1 + t1);
-  ctx.globalAlpha = 1;
-}
-
-function drawSprites(s) {
-  const a = s.p1.screen, sc = a.scale;
-  const alpha = 1 - s.fog;
-  if (alpha < 0.03) return;
-  const kv = view.cos;                               // von oben gesehen wirken stehende Dinge gestaucht
-  ctx.globalAlpha = alpha;
-  for (const sp of s.sprites) {
-    if (sp.gone > gameT || (sp.pick && s.loop)) continue;     // Orbs im Looping zeichnet der Ring
-    const d = SPR[sp.name];
-    const w = d.w * sc, h = d.h * sc * kv;
-    if (h < 3) continue;
-    const x = a.x + a.w * sp.x - w / 2;
-    if (x > W + MG || x + w < -MG) continue;
-    let yo = sp.yOff;
-    if (sp.pick) yo += Math.sin(gameT * 4 + sp.seed) * 25;
-    const y = a.y - h - yo * sc * kv;
-    const vis = Math.min(h, s.clip - y);
-    if (vis <= 0) continue;
-    const img = d.img;
-    if (sp.flip) {
-      ctx.save();
-      ctx.translate(x + w, y);
-      ctx.scale(-1, 1);
-      ctx.drawImage(img, 0, 0, img.width, img.height * vis / h, 0, 0, w, vis);
-      ctx.restore();
-    } else {
-      ctx.drawImage(img, 0, 0, img.width, img.height * vis / h, x, y, w, vis);
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
-/* Leuchtsäule über einer Götter-Falle */
-function drawHazardFx(s) {
-  const hz = s.hzHead, d = SPR[HZ[hz.type].fx];
-  const a = s.p1.screen, sc = a.scale;
-  const w = d.w * sc * 1.5, h = d.h * sc * 1.5;
-  if (h < 4) return;
-  ctx.globalAlpha = (1 - s.fog * 0.6) * (0.8 + 0.2 * Math.sin(gameT * 30));
-  for (const hx of hz.xs) {
-    const x = a.x + a.w * hx - w / 2, y = a.y - h;
-    const vis = Math.min(h, s.clip - y);
-    if (vis > 0) ctx.drawImage(d.img, 0, 0, d.img.width, d.img.height * vis / h, x, y, w, vis);
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawRacer(r, s) {
-  const V = view;
-  const t = mod(r.z, SEG_LEN) / SEG_LEN;
-  const dy = lerp(s.p1.world.y, s.p2.world.y, t) - V.y;
-  const cz = r.rel * V.cos + dy * V.sin;
-  if (cz < 120) return;
-  const sc = focal / cz;
-  const cxw = lerp(s.p1.camera.x, s.p2.camera.x, t);
-  const sx = CX + sc * (cxw + r.x * ROAD_W);
-  const gy = CY - sc * (dy * V.cos - r.rel * V.sin);
-  const fy = gy - sc * r.h * V.cos;
-  const k = sc * RIDER_SCALE * (r.pal.size || 1) * (r.big || 1);
-  if (r.isPlayer) { pScr.x = sx; pScr.y = fy; pScr.k = k; }
-  if (k < 0.04 || sx < -220 || sx > W + 220) return;
-
-  const needClip = gy > s.clip;
-  if (needClip) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(-MG, -MG * 4, W + 2 * MG, s.clip + MG * 4);
-    ctx.clip();
-  }
-  const vis = 1 - s.fog * 0.9;
-
-  const sh = 1 / (1 + r.h / 700);
-  ctx.globalAlpha = vis;
-  ctx.fillStyle = 'rgba(10,20,40,' + (0.32 * sh * (r.pal.ghost || 1)).toFixed(3) + ')';
-  ctx.beginPath();
-  ctx.ellipse(sx, gy, 21 * k * sh, 6 * k * sh, 0, 0, TAU);
-  ctx.fill();
-
-  ctx.globalAlpha = vis * (r.pal.ghost || 1) * r.fade;
-  drawRider(ctx, sx, fy, k, {
-    pal: r.pal, lean: r.lean, t: gameT, phase: r.phase, drift: r.driftVis,
-    boost: r.boostT > 0, thrust: r.speed / MAX_SPEED, trick: r.trick, stumble: r.stumbleT > 0,
-    cr: r.cr, sq: r.sq, armUp: r.armUp, bo: r.bo, vy: r.air ? r.vy : 0,
-  });
-  ctx.globalAlpha = vis;
-
-  if (r.big) drawBossMark(sx, fy, k);
-
-  riderLabel(r, sx, fy, k);
-
-  ctx.globalAlpha = 1;
-  if (needClip) ctx.restore();
 }
 
 function riderLabel(r, sx, fy, k) {
@@ -1509,106 +1189,13 @@ function riderLabel(r, sx, fy, k) {
   ctx.fillText(label, sx, fy - 110 * k);
 }
 
-/* 3D-Modus: Namensschilder und Boss-Markierung liegen als 2D-Bild über der 3D-Welt */
-function drawOverlay3d() {
+/* Namensschilder und Boss-Markierung liegen als 2D-Bild über der 3D-Welt (Bildschirmlage liefert world3d.js) */
+function drawLabels() {
   for (const r of racers) {
     if (!r.sv) continue;
     if (r.big) drawBossMark(r.sx, r.sy, r.sk);
     riderLabel(r, r.sx, r.sy, r.sk);
   }
-}
-
-const ringsAhead = [], touchedSegs = [];
-
-function drawWorld() {
-  const N = segments.length, V = view, IN = V.loop;
-  const base = findSegment(V.z);
-  ringsAhead.length = 0;
-  touchedSegs.length = 0;
-
-  if (V.flat) {
-    // Strecke von vorn nach hinten (verdeckte Teile hinter Kuppen fallen weg)
-    const basePct = mod(V.z, SEG_LEN) / SEG_LEN;
-    let maxy = H + MG;
-    let x = V.x0, dx = -(base.curve * basePct);
-    for (let n = V.n0; n < DRAW_DIST; n++) {
-      const idx = base.index + n;
-      const s = segments[mod(idx, N)];
-      const L = s.loop;
-      if (L && L !== IN && s.index === L.i0) {         // Looping voraus: seine Ausfahrt liegt seitlich versetzt
-        L.ex = x;
-        L.clip = maxy;
-        L.fog = fogTable[n < 0 ? 0 : n];
-        x += L.S;
-        ringsAhead.push(L);
-      }
-      const camz = V.z - (idx >= N ? TRACK_LEN : 0);
-      project(s.p1, V.x - x, V.y, camz);
-      if (n >= 0) {
-        project(s.p2, V.x - x - dx, V.y, camz);
-        x += dx;
-        dx += s.curve;
-      } else project(s.p2, V.x - x, V.y, camz);
-      s.clip = maxy;
-      s.fog = fogTable[n < 0 ? 0 : n];
-      s.vis = false;
-      if (s.p1.camera.z <= 60 || s.p2.camera.z <= 60 || s.p2.screen.y >= s.p1.screen.y || s.p2.screen.y >= maxy) continue;
-      s.vis = true;
-      drawSegment(s, maxy, V.ghost && L === IN);
-      maxy = s.p2.screen.y;
-    }
-    for (const L of ringsAhead) {
-      const c = L.cam;
-      c.x = V.x - L.ex;
-      c.y = V.y - L.y0;
-      c.z = -mod(L.z0 - V.z, TRACK_LEN);
-      c.cos = V.cos;
-      c.sin = V.sin;
-      c.pitch = V.pitch;
-    }
-  }
-
-  for (const r of (boss && boss.shots.length ? racers.concat(boss.shots) : racers)) {       // im Bosskampf auch die Echos
-    const s = findSegment(r.z);
-    if (s.loop) {                                       // im Looping: der Ring zeichnet den Fahrer
-      if (s.loop === IN || ringsAhead.indexOf(s.loop) >= 0) ringAddRacer(s.loop, r);
-      continue;
-    }
-    if (!V.flat) continue;
-    r.rel = mod(r.z - V.z, TRACK_LEN);
-    if (r.rel > 260 && r.rel < (DRAW_DIST - 2) * SEG_LEN) {
-      if (!s.racers.length) touchedSegs.push(s);
-      s.racers.push(r);
-    }
-  }
-
-  if (V.flat) {
-    // Leitplanken, Kulissen, Fallen, Ringe und Fahrer von hinten nach vorn
-    for (let n = DRAW_DIST - 1; n > 0; n--) {
-      const s = segments[(base.index + n) % N];
-      const L = s.loop;
-      if (L && L !== IN && s.index === L.i0 && ringsAhead.indexOf(L) >= 0) drawRing(L, L.clip);
-      if (s.p1.camera.z <= 60 || (V.ghost && L === IN)) continue;
-      if (s.vis && !s.gap) drawRails(s);
-      if (s.sprites.length) drawSprites(s);
-      if (s.hzHead && s.hzHead.until > gameT) drawHazardFx(s);
-      if (s.racers.length) {
-        if (s.racers.length > 1) s.racers.sort((p, q) => q.rel - p.rel);
-        for (const r of s.racers) drawRacer(r, s);
-      }
-    }
-    if (IN && V.fade > 0.01) {                          // beim Abtauchen blendet der Boden weich ein
-      ctx.globalAlpha = V.fade;
-      ctx.fillStyle = IN.ground;
-      ctx.fillRect(-MG * 2, -MG * 2, W + MG * 4, H + MG * 4);
-      ctx.globalAlpha = 1;
-    }
-  }
-  if (IN) {
-    IN.fog = 0;
-    drawRing(IN, null);
-  }
-  for (const s of touchedSegs) s.racers.length = 0;
 }
 
 function drawParticles() {
@@ -1831,21 +1418,10 @@ function drawHUD() {
 /* a = Anteil des laufenden Schritts (siehe Zwischenbilder); ohne Angabe wird der aktuelle Stand gezeichnet */
 function render(a) {
   ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
-  const in3d = gfx3d && W3.draw(a);                  // 3D-Welt auf der eigenen Leinwand darunter
+  const world = W3.draw(a);                         // die Rennwelt entsteht auf der eigenen 3D-Leinwand darunter
+  ctx.clearRect(-2, -2, W + 4, H + 4);
   ctx.save();
-  if (in3d) {
-    ctx.clearRect(-2, -2, W + 4, H + 4);
-    drawOverlay3d();
-  } else {
-    if (shake > 0.3) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
-    if (Math.abs(view.roll) > 0.0015) {
-      ctx.translate(CX, H * 0.62);
-      ctx.rotate(view.roll);
-      ctx.translate(-CX, -H * 0.62);
-    }
-    drawBackground();
-    drawWorld();
-  }
+  if (world) drawLabels();
   drawParticles();
   drawSpeedFx();
   ctx.restore();
@@ -1860,6 +1436,7 @@ function render(a) {
 
 /* ================= Bedienung ================= */
 onAction = a => {
+  if (ui === 'nogl') return;
   Sfx.init();
   if (a === 'mute') { Sfx.toggleMute(); return; }
   const ok = a === 'confirm' || a === 'boost';
@@ -1896,19 +1473,7 @@ $('tracksBack').addEventListener('click', () => { showUI('menu'); refreshMenu();
 for (const id of ['boardBtn', 'tracksBoard', 'cardBoard']) $(id).addEventListener('click', e => { e.currentTarget.blur(); openBoards(); });
 $('boardsBack').addEventListener('click', closeBoards);
 
-/* Grafik: 3D oder klassisch (wird gespeichert; ohne WebGL2 bleibt es klassisch) */
-const GFX_KEY = 'toma-riders-gfx';
-function setGfx(on) {
-  gfx3d = on && W3.available;
-  $('gl').classList.toggle('hidden', !gfx3d);
-  $('gfxBtn').textContent = 'Grafik: ' + (gfx3d ? '3D' : 'Klassisch') + (W3.available ? '  ▸' : '');
-}
-$('gfxBtn').addEventListener('click', e => {
-  e.currentTarget.blur();
-  if (!W3.available) return;
-  setGfx(!gfx3d);
-  try { localStorage.setItem(GFX_KEY, gfx3d ? '3d' : 'classic'); } catch (err) { /* gilt dann nur bis zum Neuladen */ }
-});
+$('noglReload').addEventListener('click', () => location.reload());
 $('againBtn').addEventListener('click', () => { if (mode === 'story') Story.next(); else restartRace(); });
 $('menuBtn').addEventListener('click', toMenu);
 $('quitBtn').addEventListener('click', toMenu);
@@ -2014,11 +1579,7 @@ drawHeroPortrait($('portrait').getContext('2d'), 180, 180, 3.55);
 resize();
 window.addEventListener('resize', resize);
 refreshBoardLabels();
-W3.init($('gl'), canvas);
-{
-  let pref = null;
-  try { pref = localStorage.getItem(GFX_KEY); } catch (err) { /* kein Speicher: Standard */ }
-  setGfx(pref !== 'classic');
-}
+const glOk = W3.init($('gl'), canvas, () => showNoGl(true));
 toMenu();
-requestAnimationFrame(frame);
+if (glOk) requestAnimationFrame(frame);
+else showNoGl(false);

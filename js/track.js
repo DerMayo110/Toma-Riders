@@ -16,12 +16,6 @@ function roadYAt(z) {
   return lerp(s.p1.world.y, s.p2.world.y, t);
 }
 
-/* Bezugshöhe: die Fahrbahn ohne Schanzen und Schluchten. Daran richtet sich die Kamera aus, damit das Bild
-   an Schanzen- und Abbruchkanten nicht zuckt. */
-function refYAt(z) {
-  const s = findSegment(z);
-  return lerp(s.ref, segments[(s.index + 1) % segments.length].ref, mod(z, SEG_LEN) / SEG_LEN);
-}
 
 /* ================= Zonen ================= */
 
@@ -414,7 +408,7 @@ function loadTrack(id) {
   const secs = [], kicks = [];
 
   const lastY = () => (segments.length ? segments[segments.length - 1].p2.world.y : 0);
-  const pt = (y, z) => ({ world: { y, z }, camera: { x: 0, y: 0, z: 0 }, screen: { x: 0, y: 0, w: 0, scale: 0 } });
+  const pt = (y, z) => ({ world: { y, z } });
 
   function addSeg(curve, y) {
     const n = segments.length;
@@ -424,9 +418,9 @@ function loadTrack(id) {
       p2: pt(y, (n + 1) * SEG_LEN),
       curve, zone,
       dark: Math.floor(n / RUMBLE_LEN) % 2 === 1,
-      sprites: [], racers: [],
+      sprites: [],
       pad: null, ramp: false, launch: 0, gap: false, wall: false, loop: null, hz: null, hzHead: null,
-      clip: 0, fog: 0, vis: false, col: null,
+      col: null,
     });
   }
 
@@ -473,19 +467,12 @@ function loadTrack(id) {
     segments[a + gap + 1].wall = true;
   }
 
-  /* Looping: in der Segmentliste eine flache Gerade (n Segmente = Umfang), gezeichnet und gefahren als Ring.
-     st: Stützpunkte des Rings relativ zur Einfahrt (x seitlich, y hoch, z nach vorn; ny/nz = Richtung zur Ringmitte). */
+  /* Looping: in der Segmentliste eine flache Gerade (n Segmente = Umfang); world3d.js legt sie als Ring in den Raum.
+     i0 = erstes Segment, R = Radius, S = seitlicher Versatz zwischen Ein- und Ausfahrt. */
   function loop(n) {
     road(0, 26, 0, 0, 0, { auto: true });
     const i0 = segments.length, R = n * SEG_LEN / TAU;
-    const L = {
-      i0, n, R, z0: i0 * SEG_LEN, len: n * SEG_LEN, y0: baseY, S: LOOP_SHIFT, st: [], items: [],
-      cam: { x: 0, y: 0, z: 0, cos: 1, sin: 0, pitch: 0 }, ex: 0, clip: 0, fog: 0, ground: '', under: '', under2: '',
-    };
-    for (let k = 0; k <= n; k++) {
-      const th = TAU * k / n;
-      L.st.push({ x: L.S * k / n, y: R * (1 - Math.cos(th)), z: R * Math.sin(th), ny: Math.cos(th), nz: -Math.sin(th) });
-    }
+    const L = { i0, n, R, S: LOOP_SHIFT };
     for (let k = 0; k < n; k++) {
       addSeg(0, baseY);
       segments[segments.length - 1].loop = L;
@@ -516,7 +503,8 @@ function loadTrack(id) {
   segments[N - 1].p2.world.y = segments[0].p1.world.y;
   TRACK_LEN = N * SEG_LEN;
 
-  /* ---------- Bezugshöhe (siehe refYAt): Schluchten aufgefüllt, Schanzen abgetragen ---------- */
+  /* ---------- Bezugshöhe (s.ref): die Fahrbahn ohne Schanzen und Schluchten. Daran richtet sich die Kamera aus,
+     damit das Bild an Schanzen- und Abbruchkanten nicht zuckt. ---------- */
   for (let i = 0; i < N; i++) {
     const s = segments[i];
     s.ref = s.p1.world.y + (s.gap && segments[(i - 1 + N) % N].gap ? GAP_DEPTH : 0);
@@ -617,12 +605,6 @@ function loadTrack(id) {
       rail: mix(A.rail, B.rail, t),
     };
     if (s.gap) s.col.ground = s.wall ? AB[1] : s.dark ? mix(AB[0], '#000000', 0.14) : AB[0];
-  }
-  for (const lp of loops) {
-    const z = def.zones[segments[lp.i0].zone];
-    lp.ground = mix(z.g1, z.g2, 0.5);
-    lp.under = mix(z.rail, '#0a0e1c', 0.74);
-    lp.under2 = mix(z.rail, '#0a0e1c', 0.82);
   }
   return def;
 }

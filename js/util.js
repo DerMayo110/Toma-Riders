@@ -7,12 +7,10 @@ const BASE_FOCAL = 640;
 const SEG_LEN = 200;               // Länge eines Streckensegments
 const ROAD_W = 2000;               // halbe Streckenbreite
 const RUMBLE_LEN = 3;              // Segmente pro Farbstreifen
-const DRAW_DIST = 280;             // Sichtweite in Segmenten
 const CAM_H = 1000;                // Kamerahöhe über der Strecke
 const CAM_D = 2100;                // Abstand Kamera -> Spieler
 const RIDER_SCALE = 5.6;           // Welt-Einheiten pro Fahrer-Zeicheneinheit
 const RAIL_H = 170;                // Höhe der Energie-Leitplanken
-let FOG = '#cdeeff';                // Nebelfarbe (je Strecke)
 
 /* ================= Fahrphysik ================= */
 const MAX_SPEED = 12000;
