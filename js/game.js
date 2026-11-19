@@ -220,6 +220,20 @@ function burst(x, y, n, color) {
 }
 
 /* ================= Sprünge & Tricks ================= */
+/* Restliche Flugzeit (entscheidet, ob sich ein Trick noch ausgeht). Gerechnet wird Schritt für Schritt genau so wie in
+   airUpdate. Eine gröbere Rechnung sackt im ersten Schritt ein paar Einheiten zu tief: Fällt die Bahn nur langsam
+   unter dem Fahrer weg (Kuppe, Absprung mitten auf einer Schanze), galt ein langer Flug dann als Hüpfer, und Tricks
+   blieben gesperrt. lead = 0: an der Absprungstelle, vor dem ersten Flugschritt; 1: nach einem fertigen Flugschritt. */
+function flightLeft(r, dt, lead) {
+  let y = r.yAbs, w = r.vy;
+  for (let n = 0; n < 180; n++) {
+    w -= GRAVITY * dt;
+    y += w * dt;
+    if (y <= roadYAt(r.z + r.speed * dt * (n + lead))) return (n + 1) * dt;
+  }
+  return 3;
+}
+
 /* Abgehoben wird rein physikalisch: Fällt die Fahrbahn schneller weg, als die Schwerkraft den Fahrer
    nach unten zieht (Schanzenkante, steile Kuppe, Abbruchkante), fliegt er mit seinem Schwung weiter. */
 function checkLaunch(r, dt) {
@@ -236,15 +250,7 @@ function checkLaunch(r, dt) {
   r.tricks = 0;
   r.trick = null;
 
-  // voraussichtliche Flugzeit (entscheidet, ob sich ein Trick noch ausgeht)
-  let y = y0, w = r.vy, zz = z, eta = 3;
-  for (let t = 0.04; t < 3; t += 0.04) {
-    w -= GRAVITY * 0.04;
-    y += w * 0.04;
-    zz += v * 0.04;
-    if (y <= roadYAt(zz)) { eta = t; break; }
-  }
-  r.airEta = eta;
+  const eta = r.airEta = flightLeft(r, dt, 0);
   r.sqV = 2.4;                                   // streckt sich beim Absprung
   if (r.isPlayer && !r.auto && eta > 0.35) burst(pScr.x, pScr.y, 8, '#ffffff');
   if (r.isPlayer && !r.auto) {
@@ -347,7 +353,12 @@ function airUpdate(r, dt) {
     }
   }
   if (r.yAbs <= ry) { r.yAbs = ry; r.h = 0; landed(r); }
-  else r.h = r.yAbs - ry;
+  else {
+    r.h = r.yAbs - ry;
+    // Der Spieler ändert im Flug sein Tempo (Boost läuft aus): Vorhersage nachführen, sonst läuft ein vorgemerkter
+    // Trick am Ende langer Flüge in die Landung hinein
+    if (r.isPlayer) r.airEta = r.airT + flightLeft(r, dt, 1);
+  }
 }
 
 function tryTrick(dir) {
@@ -365,7 +376,9 @@ function tryTrick(dir) {
 /* need = Anteil der Trickdauer, der mindestens noch an Flugzeit übrig sein muss */
 function startTrick(p, dir, need) {
   p.trickQ = null;
-  if (p.airEta - p.airT < TRICK_DUR * BD.trick * need) return;      // kurzer Hüpfer oder schon kurz vor dem Boden: nur lenken
+  const dur = TRICK_DUR * BD.trick;
+  if (p.airEta < dur * 1.05) return;                 // Hüpfer, in den kein ganzer Trick passt: nur lenken
+  if (p.airEta - p.airT < dur * need) return;        // schon kurz vor dem Boden: nur lenken
   const set = TRICK_SETS[dir];
   p.trick = { type: dir, kind: set[p.tricks % set.length], t: 0 };
   Sfx.trick();
